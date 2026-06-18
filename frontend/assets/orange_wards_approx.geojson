@@ -1,0 +1,200 @@
+{
+  "type": "FeatureCollection",
+  "name": "orange_nj_wards_approx",
+  "bbox": [
+    -74.2587,
+    40.7467,
+    -74.2178,
+    40.7909
+  ],
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "municipality": "City of Orange Township",
+        "county": "Essex County",
+        "state": "New Jersey",
+        "crs": "EPSG:4326",
+        "source_basis": "Approximate ward polygons derived from the provided City of Orange Township ward map image and aligned to WGS84 coordinates for OpenStreetMap-style web mapping.",
+        "accuracy": "approximate_not_official",
+        "official_use": "No. Verify against municipal/NJGIN ward boundary data before legal, election, or engineering use.",
+        "ward": "NORTH",
+        "fill_color": "#f4c58d"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.2384,
+              40.7909
+            ],
+            [
+              -74.2309,
+              40.7838
+            ],
+            [
+              -74.2247,
+              40.7757
+            ],
+            [
+              -74.2335,
+              40.7693
+            ],
+            [
+              -74.2445,
+              40.7735
+            ],
+            [
+              -74.2499,
+              40.7849
+            ],
+            [
+              -74.2384,
+              40.7909
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "municipality": "City of Orange Township",
+        "county": "Essex County",
+        "state": "New Jersey",
+        "crs": "EPSG:4326",
+        "source_basis": "Approximate ward polygons derived from the provided City of Orange Township ward map image and aligned to WGS84 coordinates for OpenStreetMap-style web mapping.",
+        "accuracy": "approximate_not_official",
+        "official_use": "No. Verify against municipal/NJGIN ward boundary data before legal, election, or engineering use.",
+        "ward": "WEST",
+        "fill_color": "#c7e8bc"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.2445,
+              40.7735
+            ],
+            [
+              -74.2335,
+              40.7693
+            ],
+            [
+              -74.2382,
+              40.7619
+            ],
+            [
+              -74.2496,
+              40.7557
+            ],
+            [
+              -74.2587,
+              40.7632
+            ],
+            [
+              -74.2445,
+              40.7735
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "municipality": "City of Orange Township",
+        "county": "Essex County",
+        "state": "New Jersey",
+        "crs": "EPSG:4326",
+        "source_basis": "Approximate ward polygons derived from the provided City of Orange Township ward map image and aligned to WGS84 coordinates for OpenStreetMap-style web mapping.",
+        "accuracy": "approximate_not_official",
+        "official_use": "No. Verify against municipal/NJGIN ward boundary data before legal, election, or engineering use.",
+        "ward": "EAST",
+        "fill_color": "#f4ef9c"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.2247,
+              40.7757
+            ],
+            [
+              -74.2178,
+              40.7677
+            ],
+            [
+              -74.2218,
+              40.7591
+            ],
+            [
+              -74.2319,
+              40.7551
+            ],
+            [
+              -74.2382,
+              40.7619
+            ],
+            [
+              -74.2335,
+              40.7693
+            ],
+            [
+              -74.2247,
+              40.7757
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "municipality": "City of Orange Township",
+        "county": "Essex County",
+        "state": "New Jersey",
+        "crs": "EPSG:4326",
+        "source_basis": "Approximate ward polygons derived from the provided City of Orange Township ward map image and aligned to WGS84 coordinates for OpenStreetMap-style web mapping.",
+        "accuracy": "approximate_not_official",
+        "official_use": "No. Verify against municipal/NJGIN ward boundary data before legal, election, or engineering use.",
+        "ward": "SOUTH",
+        "fill_color": "#9fdde4"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.2382,
+              40.7619
+            ],
+            [
+              -74.2319,
+              40.7551
+            ],
+            [
+              -74.2388,
+              40.7467
+            ],
+            [
+              -74.2527,
+              40.7488
+            ],
+            [
+              -74.2496,
+              40.7557
+            ],
+            [
+              -74.2382,
+              40.7619
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

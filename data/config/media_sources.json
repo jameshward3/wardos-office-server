@@ -1,0 +1,316 @@
+{
+    "government": [
+        {
+            "name": "City of Orange Township",
+            "type": "government",
+            "priority": "critical",
+            "url": "https://orangenj.gov",
+            "category": "municipal",
+            "monitor": true
+        },
+        {
+            "name": "Orange City Council",
+            "type": "government",
+            "priority": "critical",
+            "source": "agenda_minutes",
+            "category": "legislation"
+        },
+        {
+            "name": "Orange Planning Board",
+            "type": "government",
+            "priority": "high",
+            "source": "agenda_minutes",
+            "category": "development"
+        },
+        {
+            "name": "Orange Zoning Board",
+            "type": "government",
+            "priority": "high",
+            "source": "agenda_minutes",
+            "category": "development"
+        },
+        {
+            "name": "Essex County Government",
+            "type": "government",
+            "priority": "high",
+            "url": "https://essexcountynj.org",
+            "category": "county"
+        },
+        {
+            "name": "State of New Jersey Press Releases",
+            "type": "government",
+            "priority": "medium",
+            "category": "state"
+        }
+    ],
+    "local_news": [
+        {
+            "name": "Essex News Daily",
+            "type": "news",
+            "priority": "critical",
+            "url": "https://essexnewsdaily.com",
+            "rss": "https://essexnewsdaily.com/feed",
+            "categories": [
+                "orange",
+                "east_orange",
+                "essex_county"
+            ]
+        },
+        {
+            "name": "East Orange Record Transcript",
+            "type": "news",
+            "priority": "critical",
+            "url": "https://essexnewsdaily.com/category/news/eastorange/",
+            "rss": "https://essexnewsdaily.com/category/news/eastorange/feed",
+            "categories": [
+                "east_orange",
+                "orange",
+                "essex_county"
+            ]
+        },
+        {
+            "name": "Essex Review",
+            "type": "news",
+            "priority": "critical",
+            "url": "https://essexreview.com",
+            "categories": [
+                "orange",
+                "city_of_orange_township",
+                "essex_county"
+            ]
+        },
+        {
+            "name": "Local Talk Weekly",
+            "type": "news",
+            "priority": "critical",
+            "url": "https://localtalkweekly.com/",
+            "rss": "https://localtalkweekly.com/index.php/category/essex/feed/",
+            "categories": [
+                "orange",
+                "city_of_orange_township",
+                "essex_county"
+            ]
+        },
+        {
+            "name": "TAPinto East Orange / Orange",
+            "type": "news",
+            "priority": "critical",
+            "url": "https://www.tapinto.net/towns/east-orange-slash-orange"
+        },
+        {
+            "name": "NJ.com Essex County",
+            "type": "news",
+            "priority": "critical",
+            "url": "https://www.nj.com/essex"
+        },
+        {
+            "name": "NJ.com",
+            "type": "news",
+            "priority": "high",
+            "url": "https://www.nj.com/",
+            "categories": [
+                "new_jersey",
+                "essex_county",
+                "orange"
+            ]
+        },
+        {
+            "name": "RLS Media",
+            "type": "news",
+            "priority": "high",
+            "url": "https://www.rlsmedia.com"
+        },
+        {
+            "name": "The Jersey Bee",
+            "type": "news",
+            "priority": "high",
+            "url": "https://jerseybee.org"
+        },
+        {
+            "name": "Patch",
+            "type": "news",
+            "priority": "medium",
+            "urls": [
+                "https://patch.com/new-jersey/westorange",
+                "https://patch.com/new-jersey/newarknj"
+            ]
+        }
+    ],
+    "community": [
+        {
+            "name": "Orange NJ Real Talk",
+            "type": "facebook_group",
+            "priority": "critical",
+            "url": "https://www.facebook.com/groups/OrangeNJRealTalk/",
+            "authentication_required": true
+        },
+        {
+            "name": "The Peel",
+            "type": "facebook_group",
+            "priority": "critical",
+            "authentication_required": true
+        },
+        {
+            "name": "South Ward Community Groups",
+            "type": "facebook_group",
+            "priority": "high"
+        },
+        {
+            "name": "Seven Oaks Society",
+            "type": "facebook_page",
+            "priority": "high",
+            "url": "https://www.facebook.com/sevenoakssociety/",
+            "authentication_required": true
+        },
+        {
+            "name": "Friends of Metcalf Park",
+            "type": "organization",
+            "priority": "medium"
+        },
+        {
+            "name": "University of Orange",
+            "type": "organization",
+            "priority": "medium"
+        },
+        {
+            "name": "Orange Public Library",
+            "type": "organization",
+            "priority": "medium"
+        },
+        {
+            "name": "Orange Board of Education",
+            "type": "organization",
+            "priority": "high"
+        }
+    ],
+    "social_media": {
+        "instagram": {
+            "monitored_accounts": [
+                "jameswardfororange",
+                "cityoforange",
+                "orangepublicschools",
+                "sevenoakssociety",
+                "universityoforange"
+            ],
+            "hashtags": [
+                "OrangeNJ",
+                "SouthWard",
+                "CityOfOrange",
+                "OrangePolitics",
+                "OrangeDevelopment",
+                "EssexCounty",
+                "ScotlandRoad",
+                "SouthCenterStreet"
+            ]
+        },
+        "facebook": {
+            "monitored_pages": [
+                "City of Orange Township",
+                "Orange Board of Education",
+                "Seven Oaks Society",
+                "University of Orange",
+                "Orange Public Library"
+            ]
+        },
+        "x_twitter": {
+            "monitored_accounts": [
+                "eastorangetap",
+                "njdotcom",
+                "rlsmedia"
+            ],
+            "keywords": [
+                "Orange NJ",
+                "South Ward",
+                "Scotland Road",
+                "South Center",
+                "Orange Council",
+                "Orange Planning Board",
+                "Orange Zoning Board",
+                "PILOT",
+                "Redevelopment",
+                "Parking",
+                "Trees",
+                "Traffic"
+            ]
+        },
+        "threads": {
+            "monitored_accounts": [
+                "essexreviewmagazine",
+                "local elected officials",
+                "community organizations"
+            ]
+        }
+    },
+    "intelligence_topics": [
+        "Taxes",
+        "Budget",
+        "Redevelopment",
+        "PILOT Agreements",
+        "Public Safety",
+        "Traffic",
+        "Trees",
+        "Parking",
+        "Development",
+        "Schools",
+        "Code Enforcement",
+        "DPW",
+        "Recreation",
+        "Economic Development"
+    ],
+    "ai_analysis": {
+        "sentiment_analysis": true,
+        "keyword_extraction": true,
+        "topic_clustering": true,
+        "geocoding": true,
+        "trend_detection": true,
+        "misinformation_detection": true
+    },
+    "orange_pulse_map": {
+        "enabled": true,
+        "layers": [
+            "Traffic",
+            "Development",
+            "Public Safety",
+            "Taxes",
+            "Trees",
+            "Schools",
+            "Budget",
+            "Community Events"
+        ],
+        "heatmap": {
+            "enabled": true
+        },
+        "clustering": {
+            "enabled": true
+        }
+    },
+    "alerts": {
+        "negative_sentiment_spike": true,
+        "viral_story_detection": true,
+        "development_activity": true,
+        "council_mentions": true,
+        "budget_mentions": true,
+        "public_safety_trending": true
+    },
+    "story_actions": {
+        "open_original_source": {
+            "enabled": true,
+            "target": "_blank"
+        },
+        "ai_summary": {
+            "enabled": true
+        },
+        "related_legislation": {
+            "enabled": true
+        },
+        "related_constituent_cases": {
+            "enabled": true
+        },
+        "related_projects": {
+            "enabled": true
+        },
+        "generate_talking_points": {
+            "enabled": true
+        }
+    }
+}

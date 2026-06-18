@@ -1,0 +1,24 @@
+{
+  "roles": {
+    "admin": "Administrator",
+    "strategy_advisor": "Strategy Advisor"
+  },
+  "staff_users": [
+    {
+      "full_name": "James Ward",
+      "email": "james@jameswardfororange.com",
+      "role": "admin",
+      "title": "Councilman",
+      "is_active": true,
+      "notes": "Primary WardOS administrator."
+    },
+    {
+      "full_name": "Jamar Young",
+      "email": "Manager@jameswardfororange.com",
+      "role": "strategy_advisor",
+      "title": "Strategy Advisor",
+      "is_active": true,
+      "notes": "Strategy advisor for office planning and follow-up coordination."
+    }
+  ]
+}

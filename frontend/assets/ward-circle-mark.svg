@@ -1,0 +1,10 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title id="title">Ward circle mark</title>
+  <circle cx="48" cy="48" r="46" fill="#d6b46d"/>
+  <path d="M32 30h11v38H32V30Z" fill="#07111c"/>
+  <path d="M45 30h11v38H45V30Z" fill="#07111c"/>
+  <path d="M58 30h11v38H58V30Z" fill="#07111c"/>
+  <path d="M32 68c0-9 5-14 11-19v19H32Z" fill="#07111c"/>
+  <path d="M45 68c0-9 5-14 11-19v19H45Z" fill="#07111c"/>
+</svg>
+

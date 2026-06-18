@@ -1,0 +1,61 @@
+<svg width="720" height="720" viewBox="0 0 720 720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">City of Orange Township wards map</title>
+  <desc id="desc">Stylized local reference map showing North, East, West, and South wards of Orange Township with the South Ward highlighted.</desc>
+  <rect width="720" height="720" fill="#071722"/>
+  <g opacity="0.28" stroke="#7fb4e8" stroke-width="2">
+    <path d="M84 554 C184 590 264 630 352 672"/>
+    <path d="M468 52 C560 78 622 118 680 170"/>
+    <path d="M48 438 C142 470 222 510 322 580"/>
+    <path d="M416 650 C514 598 595 553 680 505"/>
+  </g>
+  <g transform="translate(115 18) rotate(11 245 330)">
+    <path d="M264 10 L332 42 L376 104 L360 176 L402 274 L380 390 L328 502 L306 640 L222 680 L126 636 L68 560 L78 448 L38 352 L84 244 L122 146 L194 82 Z" fill="#10283b" stroke="#d5e6f7" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M194 82 L122 146 L84 244 L188 278 L270 236 L360 176 L376 104 L332 42 L264 10 Z" fill="#f2c894" stroke="#d5e6f7" stroke-width="2"/>
+    <path d="M84 244 L38 352 L78 448 L198 476 L278 418 L270 236 L188 278 Z" fill="#c9e5c9" stroke="#d5e6f7" stroke-width="2"/>
+    <path d="M270 236 L278 418 L328 502 L380 390 L402 274 L360 176 Z" fill="#edf0a9" stroke="#d5e6f7" stroke-width="2"/>
+    <path d="M78 448 L68 560 L126 636 L222 680 L306 640 L328 502 L278 418 L198 476 Z" fill="#a8ddec" stroke="#d5e6f7" stroke-width="2"/>
+    <g stroke="#334a5d" stroke-width="2" opacity="0.9">
+      <path d="M118 153 L353 129"/>
+      <path d="M100 198 L365 171"/>
+      <path d="M82 246 L363 219"/>
+      <path d="M60 300 L390 272"/>
+      <path d="M48 356 L385 329"/>
+      <path d="M73 414 L369 383"/>
+      <path d="M80 468 L324 447"/>
+      <path d="M76 522 L314 505"/>
+      <path d="M104 580 L304 564"/>
+      <path d="M146 636 L292 614"/>
+      <path d="M170 96 L126 626"/>
+      <path d="M220 64 L184 665"/>
+      <path d="M270 28 L242 656"/>
+      <path d="M320 44 L298 606"/>
+      <path d="M354 116 L342 492"/>
+      <path d="M92 252 L334 520"/>
+      <path d="M122 142 L372 386"/>
+      <path d="M60 368 L312 644"/>
+    </g>
+    <g fill="#071722" font-family="Inter, Arial, sans-serif" font-weight="800" text-anchor="middle">
+      <text x="247" y="188" font-size="32">NORTH</text>
+      <text x="156" y="370" font-size="32">WEST</text>
+      <text x="338" y="350" font-size="32">EAST</text>
+      <text x="190" y="570" font-size="36">SOUTH</text>
+    </g>
+    <g fill="#071722" opacity="0.82" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700">
+      <text x="210" y="632" transform="rotate(-13 210 632)">HEYWOOD AVE</text>
+      <text x="124" y="533" transform="rotate(-8 124 533)">SCOTLAND RD</text>
+      <text x="212" y="494" transform="rotate(-8 212 494)">CENTRAL AVE</text>
+      <text x="286" y="548" transform="rotate(72 286 548)">S CENTER ST</text>
+      <text x="310" y="392" transform="rotate(71 310 392)">MAIN ST</text>
+      <text x="178" y="308" transform="rotate(-9 178 308)">PARK AVE</text>
+      <text x="260" y="140" transform="rotate(-8 260 140)">LINCOLN AVE</text>
+    </g>
+  </g>
+  <g fill="#c8d6e4" font-family="Georgia, serif" font-size="26" font-style="italic" opacity="0.8">
+    <text x="480" y="64">Glen Ridge</text>
+    <text x="582" y="150">Bloomfield</text>
+    <text x="30" y="448">West Orange</text>
+    <text x="42" y="666">South Orange</text>
+    <text x="510" y="600">East Orange</text>
+  </g>
+</svg>
+

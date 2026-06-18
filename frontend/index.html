@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WardOS</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="styles.css?v=events-reports-persistence-20260606" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="assets/ward-circle-mark.svg" alt="WardOS mark" />
+        <div>
+          <strong>Ward<span>OS</span></strong>
+          <small>South Ward Operations System</small>
+        </div>
+      </div>
+
+      <button class="mobile-nav-toggle" id="mobileNavToggle" type="button" aria-expanded="false" aria-controls="nav">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+
+      <nav id="nav"></nav>
+
+      <section class="assistant-card">
+        <div class="avatar-ring">
+          <img src="assets/ward-circle-mark.svg" alt="" />
+        </div>
+        <div>
+          <strong>WardOS AI</strong>
+          <small>All systems active</small>
+        </div>
+        <span class="pulse"></span>
+      </section>
+
+      <button class="quick-add" data-open-modal="quick">
+        <span>Quick Add</span>
+        <b>+</b>
+      </button>
+    </aside>
+
+    <main class="shell">
+      <header class="topbar">
+        <div class="crumbs" id="crumbs">Home</div>
+        <div class="top-actions">
+          <span>Last Sync: 6:00 AM</span>
+          <label class="search">
+            <span>⌕</span>
+            <input id="globalSearch" type="search" placeholder="Search WardOS..." autocomplete="off" aria-controls="globalSearchPanel" />
+            <div id="globalSearchPanel" class="search-panel" aria-label="WardOS search results"></div>
+          </label>
+          <button class="icon-button" title="Notifications">⌁<b>3</b></button>
+          <div class="profile">
+            <img src="assets/ward-circle-mark.svg" alt="" />
+            <div>
+              <strong>Councilman Ward</strong>
+              <small>South Ward, Orange NJ</small>
+            </div>
+          </div>
+          <button class="logout-button" id="logoutButton" type="button">Logout</button>
+        </div>
+      </header>
+
+      <section id="page"></section>
+    </main>
+
+    <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <header>
+          <div>
+            <p class="eyebrow" id="modalEyebrow">Manual Add</p>
+            <h2 id="modalTitle">Add Item</h2>
+          </div>
+          <button class="ghost" id="closeModal">×</button>
+        </header>
+        <div id="modalBody"></div>
+      </section>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js?v=primary-orange-news-sources-20260607"></script>
+  </body>
+</html>

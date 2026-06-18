@@ -1,0 +1,121 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: wardos_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wardos
+      POSTGRES_USER: wardos
+      POSTGRES_PASSWORD: wardos_dev_password
+      TZ: America/New_York
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+  n8n:
+    image: n8nio/n8n
+    container_name: wardos_n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - GENERIC_TIMEZONE=America/New_York
+      - TZ=America/New_York
+      - N8N_SECURE_COOKIE=false
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_DATABASE=wardos
+      - DB_POSTGRESDB_USER=wardos
+      - DB_POSTGRESDB_PASSWORD=wardos_dev_password
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+      - ./data:/data
+    depends_on:
+      - postgres
+
+  api:
+    build: .
+    container_name: wardos_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./agents:/app/agents
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  council_meetings_sync:
+    build: .
+    container_name: wardos_council_meetings_sync
+    restart: unless-stopped
+    command: ["sh", "scripts/council_meetings_daily.sh"]
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  city_calendar_sync:
+    build: .
+    container_name: wardos_city_calendar_sync
+    restart: unless-stopped
+    command: ["sh", "scripts/city_calendar_daily.sh"]
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  city_bulletins_sync:
+    build: .
+    container_name: wardos_city_bulletins_sync
+    restart: unless-stopped
+    command: ["sh", "scripts/city_bulletins_daily.sh"]
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  development_watch_sync:
+    build: .
+    container_name: wardos_development_watch_sync
+    restart: unless-stopped
+    command: ["sh", "scripts/development_watch_daily.sh"]
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  media_mentions_sync:
+    build: .
+    container_name: wardos_media_mentions_sync
+    restart: unless-stopped
+    command: ["sh", "scripts/media_mentions_daily.sh"]
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  frontend:
+    image: nginx:1.27-alpine
+    container_name: wardos_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
