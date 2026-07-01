@@ -4,6 +4,22 @@ Local-first AI office server for a single Mac mini. It runs n8n, Postgres, and a
 
 This repo uses sample data only. It does not auto-send emails, publish posts, or contact constituents.
 
+## Protection Layers
+
+WardOS now includes a first hardening pass across these layers:
+
+- Front end foundations: security headers, private route middleware, no-store session responses, logout cookie clearing
+- APIs and backend logic: stricter request validation, request IDs, request logging, guarded write routes, safer export handling
+- Database and storage: added operational indexes for search and timeline queries, durable Postgres-first persistence, export row caps
+- Auth and permissions: staff/admin route dependencies for sensitive reads and writes, bearer-token support for remote API access, local-network allowance for trusted local operation
+- Hosting and deployment: health checks in Docker Compose, stricter proxy timeouts, safer nginx defaults
+- Security and row protections: app-layer access control around constituent, memory, staff, and audit data
+- Rate limiting: fixed-window API throttling plus login throttling on the hosted frontend
+- Error tracking and logs: request summaries with request IDs, consistent no-store behavior on sensitive endpoints
+- Availability and recovery: health-checked services plus existing backup/export flows for recovery
+
+This is a strong baseline, not the last word. Managed secret rotation, centralized logging, and database-native row-level security are still recommended for a larger production rollout.
+
 ## What Is Included
 
 - Docker Compose for local services
@@ -46,6 +62,16 @@ ollama pull llama3.1
 docker compose up -d --build
 ```
 
+4. Set security values before any remote exposure:
+
+```bash
+API_BEARER_TOKEN=replace-with-a-long-random-token
+SECRET_KEY=replace-with-a-different-long-random-secret
+ALLOW_LOCAL_UNSAFE_REQUESTS=true
+```
+
+Local browser use can keep `ALLOW_LOCAL_UNSAFE_REQUESTS=true`. If you ever expose the FastAPI server outside the local machine or trusted private network, set it to `false` and require bearer auth for all sensitive routes.
+
 4. Optional: seed database sample rows only when intentionally working in sample mode.
 
 First set `SAMPLE_MODE=true` in `.env`, then restart the API container and run:
@@ -75,6 +101,12 @@ curl http://localhost:8000/city-calendar
 curl http://localhost:8000/city-bulletins
 ```
 
+Remote or scripted writes should include the bearer token once `ALLOW_LOCAL_UNSAFE_REQUESTS=false`:
+
+```bash
+curl -H "Authorization: Bearer $API_BEARER_TOKEN" -X POST http://localhost:8000/memory/database/sync
+```
+
 Open WardOS:
 
 ```text
@@ -85,6 +117,20 @@ Open n8n:
 
 ```text
 http://localhost:5678
+```
+
+## Recovery and Safety
+
+- Postgres data persists in `data/postgres/`
+- Constituent case CSV exports remain available through `GET /cases/export.csv`
+- Unified memory exports remain available through `POST /memory/database/export`
+- Google Sheet sync remains a readable recovery layer, not the system of record
+- Docker health checks now watch Postgres, the API, and the local frontend
+
+Create a local backup:
+
+```bash
+./scripts/backup_postgres.sh
 ```
 
 ## Constituent Imports

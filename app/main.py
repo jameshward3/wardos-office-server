@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
+import time as time_module
 import requests
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, time
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -55,135 +58,147 @@ from app.models import (
     WardOSMemoryItem,
 )
 from app.public_safety import public_safety_summary, serialize_public_safety_incident, sync_public_safety_incidents
+from app.security import (
+    AuthContext,
+    log_request_summary,
+    enforce_rate_limit,
+    require_admin_access,
+    require_staff_access,
+    security_headers,
+)
 from app.settings import get_settings
 from app.staff_config import load_staff_config
 from app.weather import get_orange_weather
+
+settings = get_settings()
+logging.basicConfig(level=getattr(logging, settings.security_log_level.upper(), logging.INFO))
 
 app = FastAPI(title="WardOS Office Server")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-WardOS-API-Key", "X-WardOS-Actor", "X-WardOS-Role", "X-Requested-With"],
 )
 
 
-class CaseCreate(BaseModel):
-    constituent_name: str
-    address_line: str = ""
-    phone: str = ""
-    email: str = ""
-    topic: str
-    status: str = "open"
-    priority: str = "normal"
-    notes: str = ""
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class CaseCreate(StrictModel):
+    constituent_name: str = Field(min_length=2, max_length=255)
+    address_line: str = Field(default="", max_length=500)
+    phone: str = Field(default="", max_length=80)
+    email: str = Field(default="", max_length=255)
+    topic: str = Field(min_length=2, max_length=255)
+    status: str = Field(default="open", max_length=80)
+    priority: str = Field(default="normal", max_length=80)
+    notes: str = Field(default="", max_length=5000)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
 
-class LegislationCreate(BaseModel):
-    bill_number: str
-    title: str
-    status: str = "tracking"
-    notes: str = ""
+class LegislationCreate(StrictModel):
+    bill_number: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=2, max_length=500)
+    status: str = Field(default="tracking", max_length=120)
+    notes: str = Field(default="", max_length=5000)
 
 
-class BudgetWatchCreate(BaseModel):
-    department: str
-    line_item: str
-    fiscal_year: str
-    concern: str = ""
-    status: str = "watching"
+class BudgetWatchCreate(StrictModel):
+    department: str = Field(min_length=2, max_length=255)
+    line_item: str = Field(min_length=2, max_length=255)
+    fiscal_year: str = Field(min_length=2, max_length=20)
+    concern: str = Field(default="", max_length=5000)
+    status: str = Field(default="watching", max_length=120)
 
 
-class EventCreate(BaseModel):
-    title: str
+class EventCreate(StrictModel):
+    title: str = Field(min_length=2, max_length=255)
     starts_at: Optional[datetime] = None
-    location: str = ""
-    event_type: str = "meeting"
-    status: str = "scheduled"
-    notes: str = ""
-    source_url: str = ""
-    source_id: str = ""
+    location: str = Field(default="", max_length=255)
+    event_type: str = Field(default="meeting", max_length=120)
+    status: str = Field(default="scheduled", max_length=120)
+    notes: str = Field(default="", max_length=5000)
+    source_url: str = Field(default="", max_length=2000)
+    source_id: str = Field(default="", max_length=255)
 
 
-class DevelopmentProjectCreate(BaseModel):
-    name: str
-    address: str = ""
-    project_type: str = ""
-    status: str = "tracking"
-    board: str = ""
+class DevelopmentProjectCreate(StrictModel):
+    name: str = Field(min_length=2, max_length=255)
+    address: str = Field(default="", max_length=255)
+    project_type: str = Field(default="", max_length=120)
+    status: str = Field(default="tracking", max_length=120)
+    board: str = Field(default="", max_length=120)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    notes: str = ""
-    source_url: str = ""
-    source_id: str = ""
+    notes: str = Field(default="", max_length=5000)
+    source_url: str = Field(default="", max_length=2000)
+    source_id: str = Field(default="", max_length=255)
 
 
-class MediaMentionCreate(BaseModel):
-    source: str
-    source_type: str = "news"
-    headline: str
-    summary: str = ""
-    url: str = ""
-    sentiment: str = "neutral"
-    topic: str = ""
-    geographic_tag: str = ""
+class MediaMentionCreate(StrictModel):
+    source: str = Field(min_length=2, max_length=255)
+    source_type: str = Field(default="news", max_length=120)
+    headline: str = Field(min_length=2, max_length=500)
+    summary: str = Field(default="", max_length=5000)
+    url: str = Field(default="", max_length=2000)
+    sentiment: str = Field(default="neutral", max_length=80)
+    topic: str = Field(default="", max_length=120)
+    geographic_tag: str = Field(default="", max_length=120)
     engagement_score: int = 0
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     published_at: Optional[datetime] = None
 
 
-class PublicSafetyIncidentCreate(BaseModel):
-    incident_type: str = "incident"
-    category: str = "other"
-    title: str
-    location: str = ""
+class PublicSafetyIncidentCreate(StrictModel):
+    incident_type: str = Field(default="incident", max_length=120)
+    category: str = Field(default="other", max_length=120)
+    title: str = Field(min_length=2, max_length=255)
+    location: str = Field(default="", max_length=255)
     occurred_at: Optional[datetime] = None
-    status: str = "reported"
-    severity: str = "medium"
-    ward: str = "South Ward"
+    status: str = Field(default="reported", max_length=120)
+    severity: str = Field(default="medium", max_length=80)
+    ward: str = Field(default="South Ward", max_length=120)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    source_file: str = ""
-    source_url: str = ""
-    notes: str = ""
+    source_file: str = Field(default="", max_length=500)
+    source_url: str = Field(default="", max_length=2000)
+    notes: str = Field(default="", max_length=5000)
 
 
-class OfficeActionCreate(BaseModel):
-    title: str
-    action_type: str = "follow_up"
-    status: str = "draft"
-    priority: str = "normal"
-    owner: str = ""
+class OfficeActionCreate(StrictModel):
+    title: str = Field(min_length=2, max_length=255)
+    action_type: str = Field(default="follow_up", max_length=120)
+    status: str = Field(default="draft", max_length=120)
+    priority: str = Field(default="normal", max_length=80)
+    owner: str = Field(default="", max_length=255)
     due_at: Optional[datetime] = None
-    source_type: str = ""
-    source_id: str = ""
-    notes: str = ""
+    source_type: str = Field(default="", max_length=120)
+    source_id: str = Field(default="", max_length=120)
+    notes: str = Field(default="", max_length=5000)
 
 
-class SourceConnectionCreate(BaseModel):
-    name: str
-    source_type: str
-    url: str = ""
+class SourceConnectionCreate(StrictModel):
+    name: str = Field(min_length=2, max_length=255)
+    source_type: str = Field(min_length=2, max_length=120)
+    url: str = Field(default="", max_length=2000)
     enabled: bool = True
-    status: str = "not_configured"
-    notes: str = ""
+    status: str = Field(default="not_configured", max_length=120)
+    notes: str = Field(default="", max_length=5000)
 
 
-class StaffUserCreate(BaseModel):
-    full_name: str
-    email: str
-    role: str
-    title: str = ""
+class StaffUserCreate(StrictModel):
+    full_name: str = Field(min_length=2, max_length=255)
+    email: str = Field(min_length=5, max_length=255)
+    role: str = Field(min_length=2, max_length=120)
+    title: str = Field(default="", max_length=255)
     is_active: bool = True
-    notes: str = ""
+    notes: str = Field(default="", max_length=5000)
 
 
 DATA_DIR = Path("/app/data")
@@ -196,6 +211,33 @@ INTAKE_FOLDERS = [
     "ward_report",
     "budget",
 ]
+
+
+@app.middleware("http")
+async def wardos_security_middleware(request: Request, call_next):
+    request.state.request_id = request.headers.get("x-request-id", "") or uuid4().hex
+    started_at = time_module.time()
+    enforce_rate_limit(request)
+    try:
+        response = await call_next(request)
+    except HTTPException:
+        raise
+    except Exception:
+        logging.getLogger("wardos.api").exception("Unhandled WardOS API error")
+        response = Response(
+            content=json.dumps({"detail": "WardOS encountered an internal error", "request_id": request.state.request_id}),
+            media_type="application/json",
+            status_code=500,
+        )
+    if settings.enable_security_headers:
+        security_headers(request, response)
+    response.headers.setdefault("Cache-Control", "no-store")
+    if hasattr(request.state, "rate_limit_remaining"):
+        response.headers.setdefault("X-RateLimit-Remaining", str(request.state.rate_limit_remaining))
+    if hasattr(request.state, "rate_limit_retry_after"):
+        response.headers.setdefault("X-RateLimit-Reset", str(request.state.rate_limit_retry_after))
+    log_request_summary(request, response, started_at)
+    return response
 
 
 def serialize_dt(value):
@@ -267,8 +309,7 @@ def health():
 
 
 @app.get("/system/status")
-def system_status(db: Session = Depends(get_db)):
-    settings = get_settings()
+def system_status(_auth: AuthContext = Depends(require_admin_access), db: Session = Depends(get_db)):
     return {
         "ok": True,
         "timezone": "America/New_York",
@@ -315,12 +356,12 @@ def daily_briefing():
 
 
 @app.get("/documents")
-def documents():
+def documents(_auth: AuthContext = Depends(require_staff_access)):
     return {folder: read_folder(folder) for folder in INTAKE_FOLDERS}
 
 
 @app.get("/memory/database")
-def wardos_memory_database(limit: int = 50, db: Session = Depends(get_db)):
+def wardos_memory_database(limit: int = 50, _auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     rows = (
         db.query(WardOSMemoryItem)
         .order_by(WardOSMemoryItem.updated_at.desc())
@@ -331,24 +372,24 @@ def wardos_memory_database(limit: int = 50, db: Session = Depends(get_db)):
 
 
 @app.post("/memory/database/sync")
-def sync_wardos_memory_database(db: Session = Depends(get_db)):
+def sync_wardos_memory_database(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     result = sync_memory_database(db)
-    audit(db, "sync", "wardos_memory_items", detail=json_dumps(result))
+    audit(db, "sync", "wardos_memory_items", detail=json_dumps(result), actor=auth.actor)
     db.commit()
     return result
 
 
 @app.post("/memory/database/export")
-def export_wardos_memory_database(db: Session = Depends(get_db)):
+def export_wardos_memory_database(auth: AuthContext = Depends(require_admin_access), db: Session = Depends(get_db)):
     sync_result = sync_memory_database(db)
     manifest = export_memory_database(db)
-    audit(db, "export", "wardos_memory_items", detail=json_dumps({"sync": sync_result, "manifest": manifest["files"]}))
+    audit(db, "export", "wardos_memory_items", detail=json_dumps({"sync": sync_result, "manifest": manifest["files"]}), actor=auth.actor)
     db.commit()
     return {"sync": sync_result, "manifest": manifest}
 
 
 @app.get("/memory/database/export/{file_name}")
-def download_wardos_memory_database_export(file_name: str):
+def download_wardos_memory_database_export(file_name: str, _auth: AuthContext = Depends(require_admin_access)):
     allowed = {"manifest.json", "all_memory_items.csv"}
     allowed.update({f"{name}.csv" for name in [
         "constituents",
@@ -374,12 +415,12 @@ def download_wardos_memory_database_export(file_name: str):
 
 
 @app.get("/memory/database/google-sheet")
-def wardos_memory_google_sheet_status():
+def wardos_memory_google_sheet_status(_auth: AuthContext = Depends(require_admin_access)):
     return {**google_sheet_status(), "writer": google_sheet_writer_status()}
 
 
 @app.post("/memory/database/google-sheet/sync")
-def sync_wardos_memory_google_sheet(db: Session = Depends(get_db)):
+def sync_wardos_memory_google_sheet(auth: AuthContext = Depends(require_admin_access), db: Session = Depends(get_db)):
     sync_result = sync_memory_database(db)
     sheet_result = sync_memory_to_google_sheet(db, sync_result=sync_result)
     audit(
@@ -387,13 +428,14 @@ def sync_wardos_memory_google_sheet(db: Session = Depends(get_db)):
         "sync_google_sheet",
         "wardos_memory_items",
         detail=json_dumps({"sync": sync_result, "sheet": sheet_result}),
+        actor=auth.actor,
     )
     db.commit()
     return {"database": sync_result, "google_sheet": sheet_result}
 
 
 @app.post("/documents/index")
-def index_documents(db: Session = Depends(get_db)):
+def index_documents(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     created = 0
     for folder in INTAKE_FOLDERS:
         path = DATA_DIR / folder
@@ -412,13 +454,13 @@ def index_documents(db: Session = Depends(get_db)):
                 continue
             db.add(DocumentRecord(title=item.stem, folder=folder, file_name=item.name, doc_type=folder))
             created += 1
-    audit(db, "index", "documents", detail=f"Indexed {created} new documents")
+    audit(db, "index", "documents", detail=f"Indexed {created} new documents", actor=auth.actor)
     db.commit()
     return {"created": created, "status": "indexed"}
 
 
 @app.get("/document-records")
-def document_records(db: Session = Depends(get_db)):
+def document_records(_auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     rows = db.query(DocumentRecord).order_by(DocumentRecord.created_at.desc()).all()
     return [
         {
@@ -595,7 +637,7 @@ def serialize_case_with_constituent(row: ConstituentCase, db: Session):
 
 
 @app.get("/constituents")
-def constituents(subgroup: str = "", ward: str = "", q: str = "", limit: int = 250, db: Session = Depends(get_db)):
+def constituents(subgroup: str = "", ward: str = "", q: str = "", limit: int = 250, _auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     query = db.query(Constituent).order_by(Constituent.last_name.asc(), Constituent.first_name.asc())
     if subgroup:
         query = query.filter(Constituent.subgroup == subgroup)
@@ -618,12 +660,12 @@ def constituents(subgroup: str = "", ward: str = "", q: str = "", limit: int = 2
             Constituent.voter_id.ilike(term),
             Constituent.notes.ilike(term),
         ))
-    rows = query.limit(min(max(limit, 1), 50000)).all()
+    rows = query.limit(min(max(limit, 1), 2000)).all()
     return [serialize_constituent(row) for row in rows]
 
 
 @app.get("/constituents/summary")
-def constituents_summary(db: Session = Depends(get_db)):
+def constituents_summary(_auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     rows = db.query(Constituent).all()
     by_status: dict[str, int] = {}
     by_subgroup: dict[str, int] = {}
@@ -657,7 +699,7 @@ def constituents_summary(db: Session = Depends(get_db)):
 
 
 @app.get("/cases")
-def constituent_cases(db: Session = Depends(get_db)):
+def constituent_cases(_auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     restore_cases_from_log(db)
     rows = db.query(ConstituentCase).order_by(ConstituentCase.created_at.desc()).all()
     write_case_log(rows)
@@ -665,9 +707,11 @@ def constituent_cases(db: Session = Depends(get_db)):
 
 
 @app.post("/cases")
-def create_constituent_case(payload: CaseCreate, db: Session = Depends(get_db)):
+def create_constituent_case(payload: CaseCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = ConstituentCase(**payload.model_dump())
     db.add(row)
+    db.flush()
+    audit(db, "create", "constituent_case", row.id, row.topic, actor=auth.actor)
     db.commit()
     db.refresh(row)
     write_case_log(db.query(ConstituentCase).order_by(ConstituentCase.created_at.desc()).all())
@@ -675,7 +719,7 @@ def create_constituent_case(payload: CaseCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/cases/export.csv")
-def export_constituent_cases(db: Session = Depends(get_db)):
+def export_constituent_cases(_auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     restore_cases_from_log(db)
     rows = db.query(ConstituentCase).order_by(ConstituentCase.created_at.desc()).all()
     path = write_case_log(rows)
@@ -702,9 +746,11 @@ def legislation(db: Session = Depends(get_db)):
 
 
 @app.post("/legislation")
-def create_legislation_item(payload: LegislationCreate, db: Session = Depends(get_db)):
+def create_legislation_item(payload: LegislationCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = LegislationItem(**payload.model_dump())
     db.add(row)
+    db.flush()
+    audit(db, "create", "legislation_item", row.id, row.bill_number, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": "created"}
@@ -752,9 +798,11 @@ def github_office():
 
 
 @app.post("/budget-watch")
-def create_budget_watch_item(payload: BudgetWatchCreate, db: Session = Depends(get_db)):
+def create_budget_watch_item(payload: BudgetWatchCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = BudgetWatchItem(**payload.model_dump())
     db.add(row)
+    db.flush()
+    audit(db, "create", "budget_watch_item", row.id, row.line_item, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": "created"}
@@ -780,11 +828,11 @@ def events(db: Session = Depends(get_db)):
 
 
 @app.post("/events")
-def create_event(payload: EventCreate, db: Session = Depends(get_db)):
+def create_event(payload: EventCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = Event(**payload.model_dump())
     db.add(row)
     db.flush()
-    audit(db, "create", "event", row.id, row.title)
+    audit(db, "create", "event", row.id, row.title, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": "created"}
@@ -796,9 +844,11 @@ def council_meetings():
 
 
 @app.post("/council-meetings/sync")
-def sync_council_meetings(db: Session = Depends(get_db)):
+def sync_council_meetings(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     payload = fetch_council_meetings(COUNCIL_MEETINGS_URL)
     result = upsert_council_meetings(db, payload)
+    audit(db, "sync", "council_meetings", detail=json_dumps(result), actor=auth.actor)
+    db.commit()
     return {"status": "synced", **result, "source_url": COUNCIL_MEETINGS_URL}
 
 
@@ -808,9 +858,11 @@ def city_calendar():
 
 
 @app.post("/city-calendar/sync")
-def sync_city_calendar(db: Session = Depends(get_db)):
+def sync_city_calendar(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     payload = fetch_city_calendar()
     result = upsert_city_calendar_events(db, payload)
+    audit(db, "sync", "city_calendar", detail=json_dumps(result), actor=auth.actor)
+    db.commit()
     return {"status": "synced", **result, "source_url": payload["source_url"]}
 
 
@@ -820,9 +872,11 @@ def city_bulletins():
 
 
 @app.post("/city-bulletins/sync")
-def sync_city_bulletins(db: Session = Depends(get_db)):
+def sync_city_bulletins(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     payload = fetch_city_bulletins()
     result = upsert_city_bulletins(db, payload)
+    audit(db, "sync", "city_bulletins", detail=json_dumps(result), actor=auth.actor)
+    db.commit()
     return {"status": "synced", **result, "source_url": payload["source_url"]}
 
 
@@ -832,9 +886,11 @@ def development_watch():
 
 
 @app.post("/development-watch/sync")
-def sync_development_watch(db: Session = Depends(get_db)):
+def sync_development_watch(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     payload = fetch_development_watch()
     result = upsert_development_watch(db, payload)
+    audit(db, "sync", "development_watch", detail=json_dumps(result), actor=auth.actor)
+    db.commit()
     return {"status": "synced", **result, "source_url": payload["source_url"]}
 
 
@@ -860,11 +916,11 @@ def development_projects(db: Session = Depends(get_db)):
 
 
 @app.post("/development-projects")
-def create_development_project(payload: DevelopmentProjectCreate, db: Session = Depends(get_db)):
+def create_development_project(payload: DevelopmentProjectCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = DevelopmentProject(**payload.model_dump())
     db.add(row)
     db.flush()
-    audit(db, "create", "development_project", row.id, row.name)
+    audit(db, "create", "development_project", row.id, row.name, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": "created"}
@@ -891,11 +947,11 @@ def office_actions(db: Session = Depends(get_db)):
 
 
 @app.post("/office-actions")
-def create_office_action(payload: OfficeActionCreate, db: Session = Depends(get_db)):
+def create_office_action(payload: OfficeActionCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = OfficeAction(**payload.model_dump())
     db.add(row)
     db.flush()
-    audit(db, "create", "office_action", row.id, row.title)
+    audit(db, "create", "office_action", row.id, row.title, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": "created"}
@@ -938,7 +994,7 @@ def media_monitor_config():
 
 
 @app.post("/media-monitor/import-sources")
-def import_media_sources(db: Session = Depends(get_db)):
+def import_media_sources(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     config = load_media_config()
     imported = 0
     skipped = 0
@@ -982,7 +1038,7 @@ def import_media_sources(db: Session = Depends(get_db)):
         )
         db.add(row)
         imported += 1
-    audit(db, "import", "media_sources", detail=f"Imported {imported}; skipped {skipped}")
+    audit(db, "import", "media_sources", detail=f"Imported {imported}; skipped {skipped}", actor=auth.actor)
     db.commit()
     return {"imported": imported, "skipped": skipped, "status": "complete"}
 
@@ -993,9 +1049,11 @@ def latest_media_rss():
 
 
 @app.post("/media-monitor/sync")
-def sync_media_monitor(db: Session = Depends(get_db)):
+def sync_media_monitor(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     payload = fetch_media_mentions()
     result = upsert_media_mentions(db, payload)
+    audit(db, "sync", "media_monitor", detail=json_dumps(result), actor=auth.actor)
+    db.commit()
     return {"status": "synced", **result, "source_url": payload["source_url"]}
 
 
@@ -1023,11 +1081,11 @@ def media_mentions(db: Session = Depends(get_db)):
 
 
 @app.post("/media-mentions")
-def create_media_mention(payload: MediaMentionCreate, db: Session = Depends(get_db)):
+def create_media_mention(payload: MediaMentionCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = MediaMention(**payload.model_dump())
     db.add(row)
     db.flush()
-    audit(db, "create", "media_mention", row.id, row.headline)
+    audit(db, "create", "media_mention", row.id, row.headline, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": "created"}
@@ -1042,20 +1100,20 @@ def public_safety_dashboard(db: Session = Depends(get_db)):
 
 
 @app.post("/public-safety/incidents")
-def create_public_safety_incident(payload: PublicSafetyIncidentCreate, db: Session = Depends(get_db)):
+def create_public_safety_incident(payload: PublicSafetyIncidentCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = PublicSafetyIncident(**payload.model_dump())
     db.add(row)
     db.flush()
-    audit(db, "create", "public_safety_incident", row.id, row.title)
+    audit(db, "create", "public_safety_incident", row.id, row.title, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": "created"}
 
 
 @app.post("/public-safety/sync")
-def sync_public_safety(db: Session = Depends(get_db)):
+def sync_public_safety(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     result = sync_public_safety_incidents(db)
-    audit(db, "sync", "public_safety", detail=json_dumps(result))
+    audit(db, "sync", "public_safety", detail=json_dumps(result), actor=auth.actor)
     db.commit()
     return {"status": "synced", **result}
 
@@ -1079,11 +1137,11 @@ def source_connections(db: Session = Depends(get_db)):
 
 
 @app.post("/source-connections")
-def create_source_connection(payload: SourceConnectionCreate, db: Session = Depends(get_db)):
+def create_source_connection(payload: SourceConnectionCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = SourceConnection(**payload.model_dump())
     db.add(row)
     db.flush()
-    audit(db, "create", "source_connection", row.id, row.name)
+    audit(db, "create", "source_connection", row.id, row.name, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": "created"}
@@ -1113,13 +1171,13 @@ def staff_roles():
 
 
 @app.get("/staff/users")
-def staff_users(db: Session = Depends(get_db)):
+def staff_users(_auth: AuthContext = Depends(require_admin_access), db: Session = Depends(get_db)):
     rows = db.query(StaffUser).order_by(StaffUser.role.asc(), StaffUser.full_name.asc()).all()
     return [serialize_staff_user(row) for row in rows]
 
 
 @app.post("/staff/users")
-def create_staff_user(payload: StaffUserCreate, db: Session = Depends(get_db)):
+def create_staff_user(payload: StaffUserCreate, auth: AuthContext = Depends(require_admin_access), db: Session = Depends(get_db)):
     existing = db.query(StaffUser).filter(StaffUser.email == payload.email).first()
     if existing:
         for key, value in payload.model_dump().items():
@@ -1131,14 +1189,14 @@ def create_staff_user(payload: StaffUserCreate, db: Session = Depends(get_db)):
         db.add(row)
         action = "create"
     db.flush()
-    audit(db, action, "staff_user", row.id, row.email)
+    audit(db, action, "staff_user", row.id, row.email, actor=auth.actor)
     db.commit()
     db.refresh(row)
     return {"id": row.id, "status": action}
 
 
 @app.post("/staff/import-users")
-def import_staff_users(db: Session = Depends(get_db)):
+def import_staff_users(auth: AuthContext = Depends(require_admin_access), db: Session = Depends(get_db)):
     imported = 0
     updated = 0
     for entry in load_staff_config().get("staff_users", []):
@@ -1159,13 +1217,13 @@ def import_staff_users(db: Session = Depends(get_db)):
             )
         )
         imported += 1
-    audit(db, "import", "staff_users", detail=f"Imported {imported}; updated {updated}")
+    audit(db, "import", "staff_users", detail=f"Imported {imported}; updated {updated}", actor=auth.actor)
     db.commit()
     return {"imported": imported, "updated": updated, "status": "complete"}
 
 
 @app.get("/audit-log")
-def audit_log(db: Session = Depends(get_db)):
+def audit_log(_auth: AuthContext = Depends(require_admin_access), db: Session = Depends(get_db)):
     rows = db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(200).all()
     return {
         "rows": [

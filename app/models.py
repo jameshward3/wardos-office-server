@@ -7,6 +7,10 @@ from app.database import Base
 
 class ConstituentCase(Base):
     __tablename__ = "constituent_cases"
+    __table_args__ = (
+        Index("ix_constituent_cases_status_created_at", "status", "created_at"),
+        Index("ix_constituent_cases_name_topic", "constituent_name", "topic"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     constituent_name = Column(String(255), nullable=False)
@@ -24,6 +28,11 @@ class ConstituentCase(Base):
 
 class Constituent(Base):
     __tablename__ = "constituents"
+    __table_args__ = (
+        Index("ix_constituents_ward_subgroup", "ward", "subgroup"),
+        Index("ix_constituents_full_name", "full_name"),
+        Index("ix_constituents_street_lookup", "street", "street_no", "zip_code"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     voter_id = Column(String(120), unique=True, index=True, nullable=True)
@@ -75,6 +84,9 @@ class BudgetWatchItem(Base):
 
 class Event(Base):
     __tablename__ = "events"
+    __table_args__ = (
+        Index("ix_events_status_starts_at", "status", "starts_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
@@ -91,6 +103,9 @@ class Event(Base):
 
 class DevelopmentProject(Base):
     __tablename__ = "development_projects"
+    __table_args__ = (
+        Index("ix_development_projects_status_created_at", "status", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
@@ -108,6 +123,10 @@ class DevelopmentProject(Base):
 
 class MediaMention(Base):
     __tablename__ = "media_mentions"
+    __table_args__ = (
+        Index("ix_media_mentions_source_type_published", "source_type", "published_at"),
+        Index("ix_media_mentions_sentiment_topic", "sentiment", "topic"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     source = Column(String(255), nullable=False)
@@ -127,6 +146,9 @@ class MediaMention(Base):
 
 class PublicSafetyIncident(Base):
     __tablename__ = "public_safety_incidents"
+    __table_args__ = (
+        Index("ix_public_safety_status_occurred", "status", "occurred_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     incident_type = Column(String(120), default="incident", nullable=False)
@@ -163,6 +185,9 @@ class CityBulletin(Base):
 
 class OfficeAction(Base):
     __tablename__ = "office_actions"
+    __table_args__ = (
+        Index("ix_office_actions_status_due_at", "status", "due_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
@@ -219,6 +244,9 @@ class StaffUser(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_actor_created", "actor", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     actor = Column(String(255), default="system", nullable=False)
