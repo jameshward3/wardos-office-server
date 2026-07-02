@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.settings import get_settings
+
 
 SQLITE_PATH = Path(os.environ.get("SQLITE_PATH", "/app/data/local_dev/wardos-local.db"))
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+psycopg2://wardos:wardos_dev_password@postgres:5432/wardos")
+DATABASE_URL = os.environ.get("DATABASE_URL") or get_settings().resolved_database_url
 
 TABLES = [
     "audit_logs",

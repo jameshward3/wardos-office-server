@@ -59,6 +59,7 @@ const state = {
   drafts: [],
   completedActions: JSON.parse(localStorage.getItem("wardosCompletedActions") || "[]"),
 };
+let constituentSearchTimer = null;
 
 const navItems = [
   ["home", "⌂", "Home", ""],
@@ -242,7 +243,7 @@ async function refreshOperationalData() {
   state.dashboardOverview = await getJson("/dashboard/overview", state.dashboardOverview || operationalOverviewFallback());
   state.priorityIssues = state.dashboardOverview.priority_issues || [];
   state.meetings = state.dashboardOverview.meetings || state.meetings;
-  state.meetings = await getJson("/events", state.meetings);
+  state.meetings = await getJson("/events?limit=500", state.meetings);
   state.developments = state.dashboardOverview.developments || state.developments;
   state.constituentSummary = await getJson("/constituents/summary", state.constituentSummary);
   state.cases = await getJson("/cases", state.cases);
@@ -264,6 +265,29 @@ function startWeatherRefresh() {
   }, WEATHER_REFRESH_MS);
 }
 
+function mergeConstituentSearch(rows) {
+  const byKey = new Map();
+  [...(state.constituentSearch || []), ...(rows || [])].forEach((row) => {
+    const key = row.voter_id || row.id || `${row.full_name}:${row.street_no}:${row.street}:${row.apt}`;
+    if (key) byKey.set(String(key), row);
+  });
+  state.constituentSearch = Array.from(byKey.values()).slice(0, 2000);
+}
+
+function scheduleConstituentDeepSearch(query) {
+  const q = String(query || "").trim();
+  if (q.length < 2) return;
+  window.clearTimeout(constituentSearchTimer);
+  constituentSearchTimer = window.setTimeout(async () => {
+    const rows = await getJson(`/constituents?q=${encodeURIComponent(q)}&limit=100`, []);
+    if (!rows.length) return;
+    mergeConstituentSearch(rows);
+    renderPage();
+    renderSearchPanel();
+    bindEvents();
+  }, 250);
+}
+
 function showSaveError(error) {
   alert(`WardOS could not save this to the shared server. Check that the API is running, then try again.\n\n${error.message || error}`);
 }
@@ -283,15 +307,15 @@ async function loadData() {
 
   state.dashboardOverview = await getJson("/dashboard/overview", operationalOverviewFallback());
   state.briefing = await getJson("/briefing/daily", fallbackBriefing);
-  state.constituents = await getJson("/constituents?ward=South&limit=10000", []);
-  state.constituentSearch = await getJson("/constituents?limit=50000", state.constituents);
+  state.constituents = await getJson("/constituents?ward=South&limit=750", []);
+  state.constituentSearch = state.constituents;
   state.constituentSummary = await getJson("/constituents/summary", null);
   state.cases = await getJson("/cases", []);
   state.legislation = await getJson("/legislation", []);
   state.budget = await getJson("/budget-watch", []);
   state.priorityIssues = state.dashboardOverview.priority_issues || [];
   state.meetings = state.dashboardOverview.meetings || [];
-  state.meetings = await getJson("/events", state.meetings);
+  state.meetings = await getJson("/events?limit=500", state.meetings);
   state.developments = state.dashboardOverview.developments || [];
   state.developmentWatch = await getJson("/development-watch", state.developmentWatch || developmentWatchFallback());
   state.developments = await getJson("/development-projects", state.developments);
@@ -542,11 +566,12 @@ function metricCards() {
 }
 
 function metric(value, label, sub, tone) {
+  const textValue = String(value ?? "");
   return h`
     <article class="metric">
-      <strong class="${tone}">${value}</strong>
-      <span>${label}</span>
-      <small class="${sub.includes("↑") ? "up" : ""}">${sub}</small>
+      <strong class="${tone}" title="${textValue}">${textValue}</strong>
+      <span title="${label}">${label}</span>
+      <small class="${sub.includes("↑") ? "up" : ""}" title="${sub}">${sub}</small>
     </article>
   `;
 }
@@ -585,7 +610,19 @@ function mapPanel(title = "South Ward Map") {
 }
 
 function meetingsPanel() {
-  const rows = state.meetings || [];
+  const now = Date.now();
+  const nextThirtyDays = now + (30 * 24 * 60 * 60 * 1000);
+  const rows = (state.meetings || [])
+    .filter((row) => {
+      const time = eventTimeValue(row);
+      return time && time >= now && time <= nextThirtyDays;
+    })
+    .sort((a, b) => {
+      const aTime = eventTimeValue(a);
+      const bTime = eventTimeValue(b);
+      return aTime - bTime;
+    })
+    .slice(0, 6);
   return h`
     <section class="panel">
       <div class="panel-header"><h2>Upcoming Meetings</h2><button class="link" data-page="events">View all</button></div>
@@ -3714,6 +3751,7 @@ document.getElementById("modalBackdrop").addEventListener("click", (event) => {
 });
 document.getElementById("globalSearch").addEventListener("input", (event) => {
   state.search = event.target.value;
+  scheduleConstituentDeepSearch(state.search);
   renderPage();
   renderSearchPanel();
   bindEvents();

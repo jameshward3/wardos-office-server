@@ -6,7 +6,7 @@ from app.settings import get_settings
 
 settings = get_settings()
 engine = create_engine(
-    settings.database_url,
+    settings.resolved_database_url,
     pool_pre_ping=True,
     pool_recycle=1800,
     pool_size=10,
@@ -54,6 +54,12 @@ def ensure_incremental_columns() -> None:
             statements.append("ALTER TABLE development_projects ADD COLUMN source_url TEXT DEFAULT '' NOT NULL")
         if "source_id" not in development_columns:
             statements.append("ALTER TABLE development_projects ADD COLUMN source_id VARCHAR(255) DEFAULT '' NOT NULL")
+    if "legislation_items" in table_names:
+        legislation_columns = {column["name"] for column in inspector.get_columns("legislation_items")}
+        if "source_url" not in legislation_columns:
+            statements.append("ALTER TABLE legislation_items ADD COLUMN source_url TEXT DEFAULT '' NOT NULL")
+        if "source_id" not in legislation_columns:
+            statements.append("ALTER TABLE legislation_items ADD COLUMN source_id VARCHAR(255) DEFAULT '' NOT NULL")
     if not statements:
         statements = []
     statements.extend([
@@ -64,6 +70,8 @@ def ensure_incremental_columns() -> None:
         "CREATE INDEX IF NOT EXISTS ix_media_mentions_topic_published ON media_mentions (topic, published_at DESC)",
         "CREATE INDEX IF NOT EXISTS ix_public_safety_ward_occurred ON public_safety_incidents (ward, occurred_at DESC)",
         "CREATE INDEX IF NOT EXISTS ix_development_projects_board_status ON development_projects (board, status)",
+        "CREATE INDEX IF NOT EXISTS ix_legislation_items_status_hearing ON legislation_items (status, hearing_date)",
+        "CREATE INDEX IF NOT EXISTS ix_legislation_items_source_id ON legislation_items (source_id)",
         "CREATE INDEX IF NOT EXISTS ix_audit_logs_entity_created ON audit_logs (entity_type, created_at DESC)",
     ])
     with engine.begin() as connection:

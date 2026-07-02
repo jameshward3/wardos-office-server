@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 COUNCIL_MEETINGS_URL = "https://orangetwpnjcc.org/meetings/2026-meetings-2/"
 DATA_DIR = Path(os.getenv("WARDOS_DATA_DIR", "/app/data"))
 CACHE_PATH = DATA_DIR / "council_meetings" / "latest.json"
+LEGISLATION_CACHE_PATH = DATA_DIR / "legislation" / "latest.json"
 
 
 def meeting_source_id(meeting_date) -> str:
@@ -68,7 +69,51 @@ def classify_document(text: str, context: str, href: str = "") -> tuple[str, str
     if doc_type in {"ordinance", "resolution"}:
         meeting_type = "legislation"
     return meeting_type, doc_type
-    return "document", "other"
+
+
+def legislation_status(document_type: str, context: str) -> str:
+    haystack = re.sub(r"\s+", " ", context or "").lower()
+    if "postponed" in haystack:
+        return "postponed"
+    if "withdrawn" in haystack:
+        return "withdrawn"
+    if "ordinances - 1" in haystack or "ordinances – 1" in haystack or "first reading" in haystack:
+        return "first_reading"
+    if "ordinances - 2" in haystack or "ordinances – 2" in haystack or "second reading" in haystack:
+        return "second_reading"
+    if document_type == "resolution":
+        return "resolution_pending"
+    return "tracking"
+
+
+def bill_number_from_text(text: str, doc_type: str) -> str:
+    normalized = re.sub(r"\s+", " ", text or "").strip()
+    patterns = [
+        r"\b(?:ord(?:inance)?|reso(?:lution)?)\s*[-#:]*\s*([a-z]?\s*\d{1,4}\s*[-/]\s*\d{2,4}[a-z]?)\b",
+        r"\b([a-z]?\s*\d{1,4}\s*[-/]\s*\d{2,4}[a-z]?)\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.IGNORECASE)
+        if match:
+            value = re.sub(r"\s+", "", match.group(1).upper()).replace("/", "-")
+            prefix = "ORD" if doc_type == "ordinance" else "RES"
+            if value.startswith(("ORD", "RES")):
+                return value
+            return f"{prefix}-{value}"
+    return ""
+
+
+def legislation_title_from_text(text: str) -> str:
+    cleaned = re.sub(r"\.pdf\b", "", text or "", flags=re.IGNORECASE).strip(" -:")
+    cleaned = re.sub(r"\b(?:ORD(?:INANCE)?|RESO(?:LUTION)?)\s*[-#:]*\s*[A-Z]?\s*\d{1,4}\s*[-/]\s*\d{2,4}[A-Z]?\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -:")
+    return cleaned or "Untitled legislation item"
+
+
+def legislation_source_id(href: str, bill_number: str, meeting_date: str, index: int) -> str:
+    slug = bill_number or href.rsplit("/", 1)[-1] or f"item-{index}"
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", slug).strip("-").lower()
+    return f"orange-legislation-{meeting_date}-{slug}"
 
 
 class CouncilMeetingsParser(HTMLParser):
@@ -174,6 +219,52 @@ def load_cached_council_meetings() -> dict:
     return json.loads(CACHE_PATH.read_text(encoding="utf-8"))
 
 
+def extract_legislation_items(payload: dict) -> dict:
+    items: list[dict] = []
+    for meeting in payload.get("meetings", []):
+        meeting_date = meeting.get("date") or ""
+        for index, document in enumerate(meeting.get("documents", []), start=1):
+            if document.get("document_type") not in {"ordinance", "resolution"}:
+                continue
+            context = " ".join(filter(None, [meeting.get("summary", ""), document.get("title", "")]))
+            doc_type = document.get("document_type", "other")
+            bill_number = bill_number_from_text(document.get("title", ""), doc_type)
+            items.append(
+                {
+                    "source_id": legislation_source_id(document.get("url", ""), bill_number, meeting_date, index),
+                    "bill_number": bill_number or f"{doc_type[:3].upper()}-{meeting_date}-{index}",
+                    "title": legislation_title_from_text(document.get("title", "")),
+                    "status": legislation_status(doc_type, context),
+                    "hearing_date": meeting_date,
+                    "source_url": document.get("url", "") or meeting.get("source_url", ""),
+                    "meeting_title": meeting.get("title", ""),
+                    "document_type": doc_type,
+                    "notes": {
+                        "meeting_title": meeting.get("title", ""),
+                        "meeting_date": meeting_date,
+                        "location": meeting.get("location", ""),
+                        "source_page": meeting.get("source_url", ""),
+                        "summary": meeting.get("summary", ""),
+                    },
+                }
+            )
+    legislation_payload = {
+        "source_url": payload.get("source_url", COUNCIL_MEETINGS_URL),
+        "fetched_at": payload.get("fetched_at"),
+        "item_count": len(items),
+        "items": items,
+    }
+    LEGISLATION_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LEGISLATION_CACHE_PATH.write_text(json.dumps(legislation_payload, indent=2), encoding="utf-8")
+    return legislation_payload
+
+
+def load_cached_legislation() -> dict:
+    if not LEGISLATION_CACHE_PATH.exists():
+        return {"source_url": COUNCIL_MEETINGS_URL, "fetched_at": None, "item_count": 0, "items": []}
+    return json.loads(LEGISLATION_CACHE_PATH.read_text(encoding="utf-8"))
+
+
 def upsert_council_meetings(db: "Session", payload: dict) -> dict:
     from app.models import AuditLog, Event
 
@@ -225,3 +316,47 @@ def upsert_council_meetings(db: "Session", payload: dict) -> dict:
     )
     db.commit()
     return {"imported": imported, "updated": updated, "meeting_count": payload.get("meeting_count", 0)}
+
+
+def upsert_legislation_items(db: "Session", payload: dict) -> dict:
+    from app.models import AuditLog, LegislationItem
+
+    imported = 0
+    updated = 0
+    for item in payload.get("items", []):
+        hearing_date = None
+        if item.get("hearing_date"):
+            hearing_date = datetime.fromisoformat(item["hearing_date"]).date()
+        notes = json.dumps(item.get("notes", {}), sort_keys=True)
+        existing = db.query(LegislationItem).filter(LegislationItem.source_id == item["source_id"]).first()
+        if existing:
+            existing.bill_number = item["bill_number"]
+            existing.title = item["title"]
+            existing.status = item["status"]
+            existing.hearing_date = hearing_date
+            existing.source_url = item["source_url"]
+            existing.notes = notes
+            updated += 1
+        else:
+            db.add(
+                LegislationItem(
+                    bill_number=item["bill_number"],
+                    title=item["title"],
+                    status=item["status"],
+                    hearing_date=hearing_date,
+                    source_url=item["source_url"],
+                    source_id=item["source_id"],
+                    notes=notes,
+                )
+            )
+            imported += 1
+    db.add(
+        AuditLog(
+            actor="wardos_scheduler",
+            action="sync",
+            entity_type="legislation_items",
+            detail=f"Fetched {payload.get('item_count', 0)} legislation items from Orange meetings page; imported {imported}; updated {updated}",
+        )
+    )
+    db.commit()
+    return {"imported": imported, "updated": updated, "item_count": payload.get("item_count", 0)}

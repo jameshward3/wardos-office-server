@@ -65,12 +65,15 @@ docker compose up -d --build
 4. Set security values before any remote exposure:
 
 ```bash
+POSTGRES_PASSWORD=replace-with-the-current-local-db-password
 API_BEARER_TOKEN=replace-with-a-long-random-token
 SECRET_KEY=replace-with-a-different-long-random-secret
 ALLOW_LOCAL_UNSAFE_REQUESTS=true
 ```
 
-Local browser use can keep `ALLOW_LOCAL_UNSAFE_REQUESTS=true`. If you ever expose the FastAPI server outside the local machine or trusted private network, set it to `false` and require bearer auth for all sensitive routes.
+Local browser use can keep `ALLOW_LOCAL_UNSAFE_REQUESTS=true`; WardOS now only applies that bypass to loopback/trusted local hosts, not the whole private network. If you expose the FastAPI server beyond the Mac mini, set `ALLOW_LOCAL_UNSAFE_REQUESTS=false`, set `APP_ENV=production`, and require bearer auth for sensitive routes.
+
+Docker Compose binds Postgres, FastAPI, n8n, and the frontend to `127.0.0.1` by default. Change `POSTGRES_BIND`, `API_BIND`, `N8N_BIND`, or `FRONTEND_BIND` only when you intentionally want another machine to reach that service.
 
 4. Optional: seed database sample rows only when intentionally working in sample mode.
 
@@ -118,6 +121,8 @@ Open n8n:
 ```text
 http://localhost:5678
 ```
+
+Backups and restore drills are documented in [docs/backup_restore.md](/Users/jamesward/Documents/Codex/2026-06-02/build-me-a-local-ai-office/wardos-office-server/docs/backup_restore.md).
 
 ## Recovery and Safety
 

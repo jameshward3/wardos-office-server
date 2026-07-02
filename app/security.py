@@ -7,7 +7,6 @@ import threading
 import time
 from dataclasses import dataclass
 from ipaddress import ip_address
-from typing import Callable
 from uuid import uuid4
 
 from fastapi import HTTPException, Request, Response, status
@@ -54,24 +53,45 @@ def request_id_from_request(request: Request) -> str:
 
 
 def get_client_ip(request: Request) -> str:
+    direct_host = get_direct_client_host(request)
     forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
+    settings = get_settings()
+    if forwarded_for and is_trusted_proxy(direct_host, settings):
         return forwarded_for.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
+    if direct_host:
+        return direct_host
     return "unknown"
 
 
-def is_local_ip(value: str) -> bool:
+def get_direct_client_host(request: Request) -> str:
+    if request.client and request.client.host:
+        return request.client.host
+    return ""
+
+
+def is_loopback_ip(value: str) -> bool:
     try:
         candidate = ip_address(value)
     except ValueError:
-        return value in {"localhost", "host.docker.internal"}
-    return candidate.is_loopback or candidate.is_private
+        return value == "localhost"
+    return candidate.is_loopback
 
 
-def is_local_request(request: Request) -> bool:
-    return is_local_ip(get_client_ip(request))
+def is_trusted_proxy(value: str, settings: Settings) -> bool:
+    if not value:
+        return False
+    if value in settings.trusted_proxy_ips:
+        return True
+    return is_loopback_ip(value) and value in settings.trusted_proxy_ips
+
+
+def is_trusted_local_request(request: Request, settings: Settings) -> bool:
+    direct_host = get_direct_client_host(request)
+    if not direct_host:
+        return False
+    if direct_host in settings.trusted_local_hosts:
+        return True
+    return is_loopback_ip(direct_host)
 
 
 def security_headers(request: Request, response: Response) -> None:
@@ -128,7 +148,7 @@ def require_auth(request: Request, role: str = "staff") -> AuthContext:
 
     client_ip = get_client_ip(request)
     request_id = request_id_from_request(request)
-    if settings.allow_local_unsafe_requests and is_local_request(request):
+    if settings.allow_local_unsafe_requests and is_trusted_local_request(request, settings):
         return AuthContext(
             actor="local_staff",
             role="admin" if role == "admin" else "staff",
@@ -184,4 +204,3 @@ def log_request_summary(request: Request, response: Response, started_at: float)
         "elapsed_ms": elapsed_ms,
     }
     logger.info(json.dumps(payload, sort_keys=True))
-

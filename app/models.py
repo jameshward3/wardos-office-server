@@ -60,12 +60,18 @@ class Constituent(Base):
 
 class LegislationItem(Base):
     __tablename__ = "legislation_items"
+    __table_args__ = (
+        Index("ix_legislation_items_status_hearing_date", "status", "hearing_date"),
+        Index("ix_legislation_items_bill_number", "bill_number"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     bill_number = Column(String(120), nullable=False)
     title = Column(String(500), nullable=False)
     status = Column(String(120), default="tracking", nullable=False)
     hearing_date = Column(Date, nullable=True)
+    source_url = Column(Text, default="", nullable=False)
+    source_id = Column(String(255), default="", nullable=False, index=True)
     notes = Column(Text, default="", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

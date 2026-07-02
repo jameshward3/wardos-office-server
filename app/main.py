@@ -7,7 +7,7 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime, time
+from datetime import datetime, timedelta, time
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -22,9 +22,12 @@ from app.city_bulletins import fetch_city_bulletins, load_cached_city_bulletins,
 from app.city_calendar import fetch_city_calendar, load_cached_city_calendar, upsert_city_calendar_events
 from app.council_meetings import (
     COUNCIL_MEETINGS_URL,
+    extract_legislation_items,
     fetch_council_meetings,
     load_cached_council_meetings,
+    load_cached_legislation,
     upsert_council_meetings,
+    upsert_legislation_items,
 )
 from app.database import SessionLocal, get_db, init_db
 from app.development_watch import fetch_development_watch, load_cached_development_watch, upsert_development_watch
@@ -74,6 +77,8 @@ settings = get_settings()
 logging.basicConfig(level=getattr(logging, settings.security_log_level.upper(), logging.INFO))
 
 app = FastAPI(title="WardOS Office Server")
+SYSTEM_STATUS_CACHE_TTL_SECONDS = 30
+_system_status_cache: dict[str, object] = {"expires_at": 0.0, "payload": None}
 
 app.add_middleware(
     CORSMiddleware,
@@ -292,6 +297,7 @@ def restore_cases_from_log(db: Session) -> int:
 
 @app.on_event("startup")
 def startup() -> None:
+    settings.validate_runtime()
     init_db()
     with SessionLocal() as db:
         restore_cases_from_log(db)
@@ -310,7 +316,12 @@ def health():
 
 @app.get("/system/status")
 def system_status(_auth: AuthContext = Depends(require_admin_access), db: Session = Depends(get_db)):
-    return {
+    now = time_module.time()
+    cached_payload = _system_status_cache.get("payload")
+    if cached_payload and float(_system_status_cache.get("expires_at", 0.0)) > now:
+        return cached_payload
+
+    payload = {
         "ok": True,
         "timezone": "America/New_York",
         "sample_mode": settings.sample_mode,
@@ -343,6 +354,9 @@ def system_status(_auth: AuthContext = Depends(require_admin_access), db: Sessio
             "media_sources": db.query(SourceConnection).filter(SourceConnection.enabled == True).count(),
         },
     }
+    _system_status_cache["payload"] = payload
+    _system_status_cache["expires_at"] = now + SYSTEM_STATUS_CACHE_TTL_SECONDS
+    return payload
 
 
 @app.get("/weather/today")
@@ -728,7 +742,7 @@ def export_constituent_cases(_auth: AuthContext = Depends(require_staff_access),
 
 @app.get("/legislation")
 def legislation(db: Session = Depends(get_db)):
-    rows = db.query(LegislationItem).order_by(LegislationItem.created_at.desc()).all()
+    rows = db.query(LegislationItem).order_by(LegislationItem.hearing_date.desc().nullslast(), LegislationItem.created_at.desc()).all()
     return [
         {
             "id": row.id,
@@ -809,8 +823,25 @@ def create_budget_watch_item(payload: BudgetWatchCreate, auth: AuthContext = Dep
 
 
 @app.get("/events")
-def events(db: Session = Depends(get_db)):
-    rows = db.query(Event).order_by(Event.starts_at.asc().nullslast(), Event.created_at.desc()).all()
+def events(
+    window_days: Optional[int] = None,
+    include_past: bool = True,
+    limit: int = 500,
+    db: Session = Depends(get_db),
+):
+    query = db.query(Event)
+    if window_days is not None:
+        days = min(max(window_days, 1), 366)
+        now = datetime.utcnow()
+        through = now + timedelta(days=days)
+        query = query.filter(Event.starts_at.isnot(None), Event.starts_at <= through)
+        if not include_past:
+            query = query.filter(Event.starts_at >= now)
+    rows = (
+        query.order_by(Event.starts_at.asc().nullslast(), Event.created_at.desc())
+        .limit(min(max(limit, 1), 1000))
+        .all()
+    )
     return [
         {
             "id": row.id,
@@ -843,13 +874,25 @@ def council_meetings():
     return load_cached_council_meetings()
 
 
+@app.get("/legislation/source/orange")
+def orange_meeting_legislation():
+    return load_cached_legislation()
+
+
 @app.post("/council-meetings/sync")
 def sync_council_meetings(auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     payload = fetch_council_meetings(COUNCIL_MEETINGS_URL)
     result = upsert_council_meetings(db, payload)
+    legislation_payload = extract_legislation_items(payload)
+    legislation_result = upsert_legislation_items(db, legislation_payload)
     audit(db, "sync", "council_meetings", detail=json_dumps(result), actor=auth.actor)
     db.commit()
-    return {"status": "synced", **result, "source_url": COUNCIL_MEETINGS_URL}
+    return {
+        "status": "synced",
+        **result,
+        "source_url": COUNCIL_MEETINGS_URL,
+        "legislation": legislation_result,
+    }
 
 
 @app.get("/city-calendar")

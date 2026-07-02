@@ -1,8 +1,4 @@
 #!/bin/sh
 set -e
-export PYTHONPATH=/app
 
-while true; do
-  python scripts/fetch_council_meetings.py
-  sleep "${WARDOS_COUNCIL_MEETINGS_SYNC_SECONDS:-86400}"
-done
+exec sh scripts/run_periodic.sh council_meetings WARDOS_COUNCIL_MEETINGS_SYNC_SECONDS python scripts/fetch_council_meetings.py
