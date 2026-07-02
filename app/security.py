@@ -6,7 +6,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from uuid import uuid4
 
 from fastapi import HTTPException, Request, Response, status
@@ -77,19 +77,31 @@ def is_loopback_ip(value: str) -> bool:
     return candidate.is_loopback
 
 
+def matches_trusted_entry(value: str, entry: str) -> bool:
+    """Match an IP/host against a trusted-hosts entry, which may be an exact
+    host (IP or hostname) or a CIDR range like 172.16.0.0/12 (used to trust
+    the docker-compose bridge network for container-to-container calls)."""
+    if value == entry:
+        return True
+    if "/" not in entry:
+        return False
+    try:
+        return ip_address(value) in ip_network(entry, strict=False)
+    except ValueError:
+        return False
+
+
 def is_trusted_proxy(value: str, settings: Settings) -> bool:
     if not value:
         return False
-    if value in settings.trusted_proxy_ips:
-        return True
-    return is_loopback_ip(value) and value in settings.trusted_proxy_ips
+    return any(matches_trusted_entry(value, entry) for entry in settings.trusted_proxy_ips)
 
 
 def is_trusted_local_request(request: Request, settings: Settings) -> bool:
     direct_host = get_direct_client_host(request)
     if not direct_host:
         return False
-    if direct_host in settings.trusted_local_hosts:
+    if any(matches_trusted_entry(direct_host, entry) for entry in settings.trusted_local_hosts):
         return True
     return is_loopback_ip(direct_host)
 

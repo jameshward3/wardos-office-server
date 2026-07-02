@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
 from app.database import Base
 
@@ -13,16 +13,71 @@ class ConstituentCase(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
+    constituent_id = Column(Integer, ForeignKey("constituents.id"), nullable=True, index=True)
     constituent_name = Column(String(255), nullable=False)
     address_line = Column(String(500), default="", nullable=False)
     phone = Column(String(80), default="", nullable=False)
     email = Column(String(255), default="", nullable=False)
     topic = Column(String(255), nullable=False)
+    category = Column(String(120), default="", nullable=False)
+    department = Column(String(120), default="", nullable=False)
+    assigned_to = Column(String(255), default="", nullable=False)
+    ward = Column(String(120), default="South Ward", nullable=False)
+    source = Column(String(80), default="Phone Call", nullable=False)
     status = Column(String(80), default="open", nullable=False)
     priority = Column(String(80), default="normal", nullable=False)
     notes = Column(Text, default="", nullable=False)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    due_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    ai_summary = Column(Text, default="", nullable=False)
+    ai_summary_generated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CaseNote(Base):
+    __tablename__ = "case_notes"
+    __table_args__ = (
+        Index("ix_case_notes_case_id_created_at", "case_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("constituent_cases.id"), nullable=False, index=True)
+    author = Column(String(255), default="local_staff", nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    edited_at = Column(DateTime, nullable=True)
+
+
+class CaseCommunication(Base):
+    __tablename__ = "case_communications"
+    __table_args__ = (
+        Index("ix_case_communications_case_id_created_at", "case_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("constituent_cases.id"), nullable=False, index=True)
+    channel = Column(String(40), default="phone", nullable=False)
+    direction = Column(String(20), default="outbound", nullable=False)
+    summary = Column(Text, default="", nullable=False)
+    author = Column(String(255), default="local_staff", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CaseAttachment(Base):
+    __tablename__ = "case_attachments"
+    __table_args__ = (
+        Index("ix_case_attachments_case_id_created_at", "case_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("constituent_cases.id"), nullable=False, index=True)
+    original_name = Column(String(500), default="", nullable=False)
+    stored_name = Column(String(255), nullable=False)
+    content_type = Column(String(120), default="", nullable=False)
+    size_bytes = Column(Integer, default=0, nullable=False)
+    uploaded_by = Column(String(255), default="local_staff", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

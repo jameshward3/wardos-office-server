@@ -18,7 +18,7 @@ const routePageMap = {
 
 const state = {
   page: window.WARDOS_INITIAL_PAGE || routePageMap[window.location.pathname] || "dashboard",
-  tab: "overview",
+  tab: "cases",
   search: "",
   dashboardOverview: null,
   briefing: null,
@@ -26,6 +26,14 @@ const state = {
   constituentSearch: [],
   constituentSummary: null,
   cases: [],
+  caseSummary: null,
+  caseFilters: { status: "all", category: "all", priority: "all", department: "all", ward: "all" },
+  selectedCaseId: null,
+  caseDetail: null,
+  caseDetailTab: "overview",
+  editingNoteId: null,
+  constituentFile: null,
+  constituentFileTab: "cases",
   legislation: [],
   budget: [],
   githubBudget: null,
@@ -78,6 +86,69 @@ const navItems = [
   ["publicSafety", "◈", "Public Safety", ""],
   ["settings", "⚙", "Settings", ""],
 ];
+
+const CASE_CATEGORIES = [
+  "Roads & Potholes",
+  "Trees & Landscaping",
+  "Sidewalks",
+  "Street Lights",
+  "Traffic & Safety",
+  "Sanitation",
+  "Code Enforcement",
+  "Parks & Recreation",
+  "Development",
+  "Drainage",
+  "Other",
+];
+
+const CASE_CATEGORY_META = {
+  "Roads & Potholes": { icon: "◇", tone: "blue" },
+  "Trees & Landscaping": { icon: "❋", tone: "green" },
+  "Sidewalks": { icon: "▦", tone: "purple" },
+  "Street Lights": { icon: "○", tone: "orange" },
+  "Traffic & Safety": { icon: "◈", tone: "red" },
+  "Sanitation": { icon: "▥", tone: "cyan" },
+  "Code Enforcement": { icon: "◆", tone: "orange" },
+  "Parks & Recreation": { icon: "❀", tone: "green" },
+  "Development": { icon: "▧", tone: "blue" },
+  "Drainage": { icon: "≈", tone: "cyan" },
+  "Other": { icon: "●", tone: "" },
+};
+
+function categoryBadge(category) {
+  const meta = CASE_CATEGORY_META[category] || { icon: "●", tone: "" };
+  return h`
+    <span class="category-chip">
+      <span class="category-icon ${meta.tone}">${meta.icon}</span>
+      ${category || "Uncategorized"}
+    </span>
+  `;
+}
+
+const CASE_DEPARTMENTS = ["DPW", "Public Works", "Code Enforcement", "Traffic Bureau", "Sanitation", "Planning", "Recreation", "Police", "Other"];
+
+const CASE_SOURCES = ["Phone Call", "Email", "Walk-in", "Web Form", "Text Message", "Social Media", "Council Meeting", "Other"];
+
+const CASE_STATUSES = ["open", "assigned", "in progress", "waiting", "resolved", "closed"];
+
+const CASE_PRIORITIES = ["low", "normal", "medium", "high"];
+
+const CASE_WARDS = ["South Ward", "North Ward", "East Ward", "West Ward", "Citywide"];
+
+function caseStatusTone(status = "") {
+  const value = String(status).toLowerCase();
+  if (value === "resolved" || value === "closed") return "good";
+  if (value === "in progress" || value === "assigned") return "";
+  if (value === "waiting") return "warn";
+  return "warn";
+}
+
+function casePriorityTone(priority = "") {
+  const value = String(priority).toLowerCase();
+  if (value === "high") return "hot";
+  if (value === "medium") return "warn";
+  return "good";
+}
 
 const mediaTopics = [
   ["Traffic & Roads", 0, "purple"],
@@ -239,6 +310,64 @@ async function postJson(path, payload) {
   return response.json();
 }
 
+async function postForm(path, formData) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  return response.json();
+}
+
+async function loadCaseDetail(id) {
+  if (!id) {
+    state.caseDetail = null;
+    return;
+  }
+  state.caseDetail = await getJson(`/cases/${id}`, state.caseDetail && state.caseDetail.case?.id === id ? state.caseDetail : null);
+}
+
+async function selectCase(id, tab = "overview") {
+  state.selectedCaseId = id;
+  state.caseDetailTab = tab;
+  state.editingNoteId = null;
+  await loadCaseDetail(id);
+  render();
+}
+
+async function updateCase(id, patch) {
+  await postJson(`/cases/${id}`, patch);
+  state.cases = await getJson("/cases", state.cases);
+  state.caseSummary = await getJson("/cases/summary", state.caseSummary);
+  if (state.selectedCaseId === id) await loadCaseDetail(id);
+}
+
+async function deleteCase(id) {
+  await postJson(`/cases/${id}/delete`, {});
+  state.cases = await getJson("/cases", state.cases);
+  state.caseSummary = await getJson("/cases/summary", state.caseSummary);
+  if (state.selectedCaseId === id) {
+    state.selectedCaseId = state.cases[0]?.id ?? null;
+    await loadCaseDetail(state.selectedCaseId);
+  }
+}
+
+async function openConstituentFile({ constituentId, name, address } = {}) {
+  const params = new URLSearchParams();
+  if (constituentId) params.set("constituent_id", constituentId);
+  if (name) params.set("name", name);
+  if (address) params.set("address", address);
+  state.tab = "directory";
+  state.constituentFileTab = "cases";
+  state.constituentFile = await getJson(`/constituents/file?${params.toString()}`, null);
+  render();
+}
+
+function closeConstituentFile() {
+  state.constituentFile = null;
+  render();
+}
+
 async function refreshOperationalData() {
   state.dashboardOverview = await getJson("/dashboard/overview", state.dashboardOverview || operationalOverviewFallback());
   state.priorityIssues = state.dashboardOverview.priority_issues || [];
@@ -247,6 +376,7 @@ async function refreshOperationalData() {
   state.developments = state.dashboardOverview.developments || state.developments;
   state.constituentSummary = await getJson("/constituents/summary", state.constituentSummary);
   state.cases = await getJson("/cases", state.cases);
+  state.caseSummary = await getJson("/cases/summary", state.caseSummary);
   state.legislation = await getJson("/legislation", state.legislation);
   state.budget = await getJson("/budget-watch", state.budget);
   state.officeActions = await getJson("/office-actions", state.officeActions);
@@ -279,7 +409,7 @@ function scheduleConstituentDeepSearch(query) {
   if (q.length < 2) return;
   window.clearTimeout(constituentSearchTimer);
   constituentSearchTimer = window.setTimeout(async () => {
-    const rows = await getJson(`/constituents?q=${encodeURIComponent(q)}&limit=100`, []);
+    const rows = await getJson(`/constituents?q=${encodeURIComponent(q)}&limit=1500`, []);
     if (!rows.length) return;
     mergeConstituentSearch(rows);
     renderPage();
@@ -307,10 +437,13 @@ async function loadData() {
 
   state.dashboardOverview = await getJson("/dashboard/overview", operationalOverviewFallback());
   state.briefing = await getJson("/briefing/daily", fallbackBriefing);
-  state.constituents = await getJson("/constituents?ward=South&limit=750", []);
+  state.constituents = await getJson("/constituents?ward=South&limit=6000", []);
   state.constituentSearch = state.constituents;
   state.constituentSummary = await getJson("/constituents/summary", null);
   state.cases = await getJson("/cases", []);
+  state.caseSummary = await getJson("/cases/summary", null);
+  state.selectedCaseId = state.cases[0]?.id ?? null;
+  if (state.selectedCaseId != null) await loadCaseDetail(state.selectedCaseId);
   state.legislation = await getJson("/legislation", []);
   state.budget = await getJson("/budget-watch", []);
   state.priorityIssues = state.dashboardOverview.priority_issues || [];
@@ -1029,72 +1162,488 @@ function dashboardPage() {
 }
 
 function constituentsPage() {
+  const tabs = [["cases", "Cases"], ["directory", "Directory"]];
+  return h`
+    <div class="page-head">
+      <div><h1>Constituent Cases</h1><p class="muted">Track, manage, and resolve constituent issues across the ward.</p></div>
+      <button class="primary" data-open-modal="case">＋ New Case</button>
+    </div>
+    <div class="tabs">${tabs.map(([key, label]) => `<button class="tab ${state.tab === key ? "active" : ""}" data-tab="${key}">${label}</button>`).join("")}</div>
+    ${state.tab === "directory" ? directoryTabView() : casesTabView()}
+  `;
+}
+
+function filteredCases() {
+  const keys = ["constituent_name", "address_line", "phone", "email", "topic", "notes", "status", "priority", "category", "department", "assigned_to", "case_number"];
+  let rows = filterRows(state.cases, keys);
+  const f = state.caseFilters;
+  if (f.status !== "all") rows = rows.filter((row) => row.status === f.status);
+  if (f.category !== "all") rows = rows.filter((row) => row.category === f.category);
+  if (f.priority !== "all") rows = rows.filter((row) => row.priority === f.priority);
+  if (f.department !== "all") rows = rows.filter((row) => row.department === f.department);
+  if (f.ward !== "all") rows = rows.filter((row) => row.ward === f.ward);
+  return [...rows].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+}
+
+function caseStatCards() {
+  const summary = state.caseSummary || {};
+  return h`
+    <section class="grid metrics case-stat-grid">
+      ${metric(summary.total ?? state.cases.length, "Total Cases", "All time", "blue")}
+      ${metric(summary.open ?? 0, "Open Cases", "Needs action", "orange")}
+      ${metric(summary.in_progress ?? 0, "In Progress", "Being worked", "purple")}
+      ${metric(summary.resolved_30d ?? 0, "Resolved (30 Days)", "Closed out", "green")}
+      ${metric(summary.overdue ?? 0, "Overdue", "Past due date", "red")}
+      ${metric(summary.avg_resolution_days != null ? `${summary.avg_resolution_days}d` : "—", "Avg Resolution Time", "Closed cases", "cyan")}
+    </section>
+  `;
+}
+
+function caseFilterBar() {
+  const f = state.caseFilters;
+  const selectField = (key, label, options) => h`
+    <div class="field compact">
+      <label>${label}</label>
+      <select data-case-filter="${key}">
+        <option value="all" ${f[key] === "all" ? "selected" : ""}>All ${label}</option>
+        ${options.map((opt) => `<option value="${opt}" ${f[key] === opt ? "selected" : ""}>${opt}</option>`).join("")}
+      </select>
+    </div>
+  `;
+  return h`
+    <div class="case-filter-bar">
+      ${selectField("status", "Status", CASE_STATUSES)}
+      ${selectField("category", "Category", CASE_CATEGORIES)}
+      ${selectField("priority", "Priority", CASE_PRIORITIES)}
+      ${selectField("department", "Department", CASE_DEPARTMENTS)}
+      ${selectField("ward", "Ward", CASE_WARDS)}
+    </div>
+  `;
+}
+
+function caseListItem(row) {
+  const active = state.selectedCaseId === row.id;
+  return h`
+    <div class="case-list-row ${active ? "active" : ""}">
+      <button class="case-list-main-btn" data-select-case="${row.id}">
+        <span class="case-list-main">
+          <span class="case-number muted">${row.case_number || `#${row.id}`}</span>
+          <strong>${row.topic}</strong>
+          <small class="muted">${row.constituent_name}${row.address_line ? ` · ${row.address_line}` : ""}</small>
+          ${categoryBadge(row.category)}
+        </span>
+      </button>
+      <span class="case-list-meta">
+        <span class="status ${casePriorityTone(row.priority)}">${row.priority}</span>
+        <select class="case-list-status" data-case-list-status="${row.id}">
+          ${CASE_STATUSES.map((s) => `<option value="${s}" ${row.status === s ? "selected" : ""}>${s}</option>`).join("")}
+        </select>
+        ${row.assigned_to ? `<span class="avatar-chip" title="${row.assigned_to}">${initials(row.assigned_to)}</span>` : ""}
+      </span>
+    </div>
+  `;
+}
+
+function caseListPanel(rows) {
+  return h`
+    <section class="panel case-list-panel">
+      <div class="panel-header"><h2>Cases</h2><span class="muted">${rows.length} of ${state.cases.length}</span></div>
+      ${caseFilterBar()}
+      <div class="case-list-body">
+        ${rows.length ? rows.map(caseListItem).join("") : `<div class="empty">No cases match this search.</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function slaPercent(row) {
+  if (!row.due_at || !row.created_at) return 0;
+  const start = new Date(row.created_at).getTime();
+  const due = new Date(row.due_at).getTime();
+  if (due <= start) return 100;
+  return Math.max(0, Math.min(100, Math.round(((Date.now() - start) / (due - start)) * 100)));
+}
+
+function slaTone(row) {
+  if (row.status === "resolved" || row.status === "closed") return "good";
+  const pct = slaPercent(row);
+  if (pct >= 100) return "hot";
+  if (pct >= 70) return "warn";
+  return "good";
+}
+
+function linkedCasesCard(rows = []) {
+  return h`
+    <section class="mini-panel">
+      <div class="panel-header"><h3>Linked Cases</h3><span class="muted">${rows.length}</span></div>
+      ${rows.length ? rows.map((row) => `
+        <button class="list-row ghost" data-select-case="${row.id}">
+          <span><strong>${row.topic}</strong><br><small class="muted">${row.case_number} · ${row.status}</small></span>
+          <span></span><span class="status ${casePriorityTone(row.priority)}">${row.priority}</span>
+        </button>
+      `).join("") : `<div class="empty small">No other cases linked to this resident or address.</div>`}
+    </section>
+  `;
+}
+
+function caseOverviewTab(detail) {
+  const row = detail.case;
+  const created = row.created_at ? formatShortDate(row.created_at) : "Not set";
+  const due = row.due_at ? formatShortDate(row.due_at) : "Not set";
+  const hasCoords = row.latitude && row.longitude;
+  return h`
+    <div class="case-overview">
+      <p>${row.notes || "No description provided."}</p>
+      <div class="case-detail-grid">
+        <div><small class="muted">Category</small><br>${categoryBadge(row.category)}</div>
+        <div><small class="muted">Department</small><br>${row.department || "Unassigned"}</div>
+        <div><small class="muted">Ward</small><br>${row.ward}</div>
+        <div><small class="muted">Source</small><br>${row.source}</div>
+        <div><small class="muted">Reported</small><br>${created}</div>
+        <div><small class="muted">Due Date</small><br>${due}</div>
+      </div>
+
+      <section class="mini-panel">
+        <div class="panel-header"><h3>AI Case Summary</h3><button class="link" data-regenerate-summary="${row.id}">Regenerate Summary</button></div>
+        <p class="muted">${row.ai_summary || "No AI summary yet. Click Regenerate Summary to generate one from the local Ollama model."}</p>
+      </section>
+
+      <section class="mini-panel">
+        <div class="panel-header"><h3>Location</h3>${row.address_line ? `<span class="muted">${row.address_line}</span>` : ""}</div>
+        ${hasCoords ? `<div class="map osm-map case-osm-map" data-map-kind="case" data-lat="${row.latitude}" data-lng="${row.longitude}"></div>` : `<div class="empty small">No coordinates on file for this case yet.</div>`}
+      </section>
+
+      <section class="mini-panel">
+        <div class="panel-header"><h3>Case Details</h3></div>
+        <div class="case-quick-edit">
+          <div class="field compact"><label>Status</label>
+            <select data-case-quick-update="status">${CASE_STATUSES.map((s) => `<option value="${s}" ${row.status === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+          </div>
+          <div class="field compact"><label>Priority</label>
+            <select data-case-quick-update="priority">${CASE_PRIORITIES.map((p) => `<option value="${p}" ${row.priority === p ? "selected" : ""}>${p}</option>`).join("")}</select>
+          </div>
+          <div class="field compact"><label>Assigned To</label>
+            <input data-case-quick-update="assigned_to" value="${row.assigned_to || ""}" placeholder="Unassigned">
+          </div>
+        </div>
+        ${row.due_at ? `<div class="sla-bar"><div class="sla-bar-fill ${slaTone(row)}" style="width:${slaPercent(row)}%"></div></div><small class="muted">Resolution goal: ${due}</small>` : ""}
+      </section>
+
+      <section class="mini-panel">
+        <div class="panel-header"><h3>Linked Constituent</h3></div>
+        ${row.matched_constituent_id ? `
+          <div class="list-row">
+            <span><strong>${row.constituent_name}</strong><br><small class="muted">${row.phone || "No phone"} · ${row.address_line || "No address"}</small></span>
+            <span></span>
+            <button class="link" data-view-directory="${row.constituent_name}">View Profile</button>
+          </div>
+        ` : `<div class="empty small">No matching voter record found for ${row.constituent_name}.</div>`}
+      </section>
+
+      ${linkedCasesCard(detail.linked_cases)}
+
+      <section class="mini-panel">
+        <div class="panel-header"><h3>Quick Actions</h3></div>
+        <div class="button-row">
+          <button class="secondary" data-case-detail-tab="notes">Add Note</button>
+          <button class="secondary" data-case-detail-tab="communications">Log Communication</button>
+          <button class="secondary" data-case-detail-tab="files">Upload File</button>
+          <button class="primary" data-convert-work-order="${row.id}">Convert to Work Order</button>
+          <button class="secondary danger" data-delete-case="${row.id}">Delete Case</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function activityLabel(action) {
+  const labels = {
+    create: "Case created",
+    update: "Case updated",
+    note_added: "Note added",
+    note_edited: "Note edited",
+    communication_logged: "Communication logged",
+    file_uploaded: "File uploaded",
+    converted_to_work_order: "Converted to work order",
+    ai_summary_generated: "AI summary generated",
+    delete: "Case deleted",
+  };
+  return labels[action] || action;
+}
+
+function caseActivityTab(detail) {
+  const rows = detail.activity || [];
+  return h`
+    <div class="list">
+      ${rows.length ? rows.map((row) => `
+        <div class="list-row">
+          <span><strong>${activityLabel(row.action)}</strong><br><small class="muted">${row.detail || ""}</small></span>
+          <span></span>
+          <span><small class="muted">${row.actor}</small><br><small class="muted">${formatShortDate(row.created_at)}</small></span>
+        </div>
+      `).join("") : `<div class="empty">No activity recorded yet.</div>`}
+    </div>
+  `;
+}
+
+function caseNotesTab(detail) {
+  return h`
+    <form class="form-grid inline-form" id="caseNoteForm">
+      <div class="field"><label>Add Note</label><textarea name="body" required placeholder="Add context, follow-up detail, or an internal update"></textarea></div>
+      <button class="primary" type="submit">Save Note</button>
+    </form>
+    <div class="list">
+      ${detail.notes.length ? detail.notes.map((note) => {
+        if (state.editingNoteId === note.id) {
+          return h`
+            <form class="list-row edit-note-form" data-edit-note-form="${note.id}">
+              <textarea name="body" required>${note.body}</textarea>
+              <div class="button-row">
+                <button class="primary" type="submit">Save</button>
+                <button class="secondary" type="button" data-cancel-edit-note>Cancel</button>
+              </div>
+            </form>
+          `;
+        }
+        return h`
+          <div class="list-row">
+            <span>${note.body}${note.edited_at ? ` <small class="muted">(edited)</small>` : ""}</span><span></span>
+            <span><small class="muted">${note.author}</small><br><small class="muted">${formatShortDate(note.created_at)}</small><br><button class="link" data-edit-note="${note.id}">Edit</button></span>
+          </div>
+        `;
+      }).join("") : `<div class="empty">No notes yet.</div>`}
+    </div>
+  `;
+}
+
+function caseCommunicationsTab(detail) {
+  return h`
+    <form class="form-grid inline-form" id="caseCommunicationForm">
+      <div class="field"><label>Channel</label><select name="channel"><option value="phone">Phone</option><option value="email">Email</option><option value="text">Text</option><option value="in_person">In Person</option><option value="other">Other</option></select></div>
+      <div class="field"><label>Direction</label><select name="direction"><option value="outbound">Outbound</option><option value="inbound">Inbound</option></select></div>
+      <div class="field"><label>Summary</label><textarea name="summary" required placeholder="What was discussed"></textarea></div>
+      <button class="primary" type="submit">Log Communication</button>
+    </form>
+    <div class="list">
+      ${detail.communications.length ? detail.communications.map((row) => `
+        <div class="list-row">
+          <span><strong>${row.channel} · ${row.direction}</strong><br><small class="muted">${row.summary}</small></span><span></span>
+          <span><small class="muted">${row.author}</small><br><small class="muted">${formatShortDate(row.created_at)}</small></span>
+        </div>
+      `).join("") : `<div class="empty">No communications logged yet.</div>`}
+    </div>
+  `;
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function caseFilesTab(detail) {
+  return h`
+    <form class="form-grid inline-form" id="caseFileForm">
+      <div class="field"><label>Upload File</label><input type="file" name="file" required accept=".jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"></div>
+      <button class="primary" type="submit">Upload</button>
+    </form>
+    <div class="file-list">
+      ${detail.attachments.length ? detail.attachments.map((row) => `
+        <a class="file-chip" href="${API_BASE}${row.download_url}" target="_blank" rel="noopener noreferrer">
+          <span class="file-chip-name">${row.original_name}</span>
+          <small class="muted">${formatFileSize(row.size_bytes)} · ${formatShortDate(row.created_at)}</small>
+        </a>
+      `).join("") : `<div class="empty">No files attached yet.</div>`}
+    </div>
+  `;
+}
+
+function caseDrawer() {
+  const detail = state.caseDetail;
+  if (!detail || !detail.case) {
+    return h`
+      <aside class="case-drawer empty-drawer" aria-label="Case detail panel">
+        <div class="empty">Select a case from the list, or create a new one to see details here.</div>
+      </aside>
+    `;
+  }
+  const row = detail.case;
+  const subTabs = ["overview", "activity", "notes", "communications", "files"];
+  const tabLabel = {
+    overview: "Overview",
+    activity: "Activity",
+    notes: `Notes (${detail.notes.length})`,
+    communications: `Communications (${detail.communications.length})`,
+    files: `Files (${detail.attachments.length})`,
+  };
+  const bodies = {
+    overview: caseOverviewTab,
+    activity: caseActivityTab,
+    notes: caseNotesTab,
+    communications: caseCommunicationsTab,
+    files: caseFilesTab,
+  };
+  const renderBody = bodies[state.caseDetailTab] || caseOverviewTab;
+  return h`
+    <aside class="case-drawer" aria-label="Case detail panel">
+      <div class="drawer-head">
+        <div>
+          <small class="eyebrow">${row.case_number}</small>
+          <h2>${row.topic}</h2>
+          <div class="drawer-badges">
+            <span class="status ${casePriorityTone(row.priority)}">${row.priority} priority</span>
+            <span class="status ${caseStatusTone(row.status)}">${row.status}</span>
+          </div>
+        </div>
+      </div>
+      <div class="tabs case-drawer-tabs">${subTabs.map((tab) => `<button class="tab ${state.caseDetailTab === tab ? "active" : ""}" data-case-detail-tab="${tab}">${tabLabel[tab]}</button>`).join("")}</div>
+      <div class="drawer-body">${renderBody(detail)}</div>
+    </aside>
+  `;
+}
+
+function casesTabView() {
+  const rows = filteredCases();
+  return h`
+    ${caseStatCards()}
+    <section class="case-board">
+      ${caseListPanel(rows)}
+      ${caseDrawer()}
+    </section>
+  `;
+}
+
+function constituentFileTabBody(file) {
+  const tab = state.constituentFileTab || "cases";
+  if (tab === "cases") {
+    return file.cases.length ? `<div class="list">${file.cases.map((row) => `
+      <button class="list-row ghost" data-select-case="${row.id}">
+        <span><strong>${row.topic}</strong><br><small class="muted">${row.case_number} · ${row.category || "Uncategorized"} · ${row.constituent_name}</small></span>
+        <span><span class="status ${casePriorityTone(row.priority)}">${row.priority}</span></span>
+        <span class="status ${caseStatusTone(row.status)}">${row.status}</span>
+      </button>
+    `).join("")}</div>` : `<div class="empty">No cases on file for this household.</div>`;
+  }
+  if (tab === "notes") {
+    return file.notes.length ? `<div class="list">${file.notes.map((note) => `
+      <div class="list-row">
+        <span>${note.body}${note.edited_at ? ` <small class="muted">(edited)</small>` : ""}<br><small class="muted">${note.case_number || `Case #${note.case_id}`} · ${note.case_topic || ""}</small></span>
+        <span></span>
+        <span><small class="muted">${note.author}</small><br><small class="muted">${formatShortDate(note.created_at)}</small></span>
+      </div>
+    `).join("")}</div>` : `<div class="empty">No notes yet.</div>`;
+  }
+  if (tab === "communications") {
+    return file.communications.length ? `<div class="list">${file.communications.map((row) => `
+      <div class="list-row">
+        <span><strong>${row.channel} · ${row.direction}</strong><br><small class="muted">${row.summary}</small><br><small class="muted">${row.case_number || `Case #${row.case_id}`}</small></span>
+        <span></span>
+        <span><small class="muted">${row.author}</small><br><small class="muted">${formatShortDate(row.created_at)}</small></span>
+      </div>
+    `).join("")}</div>` : `<div class="empty">No communications logged yet.</div>`;
+  }
+  if (tab === "documents") {
+    return file.attachments.length ? `<div class="file-list">${file.attachments.map((row) => `
+      <a class="file-chip" href="${API_BASE}${row.download_url}" target="_blank" rel="noopener noreferrer">
+        <span class="file-chip-name">${row.original_name}</span>
+        <small class="muted">${formatFileSize(row.size_bytes)} · ${row.case_number || `Case #${row.case_id}`} · ${formatShortDate(row.created_at)}</small>
+      </a>
+    `).join("")}</div>` : `<div class="empty">No documents attached yet.</div>`;
+  }
+  return file.activity.length ? `<div class="list">${file.activity.map((row) => `
+    <div class="list-row">
+      <span><strong>${activityLabel(row.action)}</strong><br><small class="muted">${row.detail || ""}</small></span>
+      <span></span>
+      <span><small class="muted">${row.actor}</small><br><small class="muted">${formatShortDate(row.created_at)}</small></span>
+    </div>
+  `).join("")}</div>` : `<div class="empty">No history recorded yet.</div>`;
+}
+
+function constituentFileView(file) {
+  if (!file || !file.primary) {
+    return h`
+      <section class="panel">
+        <div class="panel-header"><h2>Constituent Not Found</h2><button class="ghost" data-close-constituent-file>× Back to Directory</button></div>
+        <div class="panel-body"><div class="empty">No matching constituent record.</div></div>
+      </section>
+    `;
+  }
+  const primary = file.primary;
+  const address = file.address || constituentAddress(primary);
+  const others = file.residents.filter((row) => row.id !== primary.id);
+  const subTabs = ["cases", "notes", "communications", "documents", "history"];
+  const tabLabel = {
+    cases: `Cases (${file.cases.length})`,
+    notes: `Notes (${file.notes.length})`,
+    communications: `Communications (${file.communications.length})`,
+    documents: `Documents (${file.attachments.length})`,
+    history: `History (${file.activity.length})`,
+  };
+  return h`
+    <section class="panel">
+      <div class="panel-header">
+        <h2>${primary.full_name}</h2>
+        <button class="ghost" data-close-constituent-file>× Back to Directory</button>
+      </div>
+      <div class="panel-body constituent-file-head">
+        <div class="portrait-sm">${initials(primary.full_name)}</div>
+        <div>
+          <p class="muted">${address || "No address on file"}</p>
+          <p class="muted">${primary.subgroup || "Registered voter"} · <span class="status ${primary.voter_status === "Active" ? "good" : "warn"}">${primary.voter_status || "Unknown"}</span> · ${primary.ward || "Unknown"} Ward</p>
+        </div>
+        <button class="primary" data-open-case-for='${JSON.stringify({ name: primary.full_name, address }).replace(/'/g, "&apos;")}'>＋ Add Case</button>
+      </div>
+      ${others.length ? h`
+        <div class="panel-body">
+          <strong>Other residents at this address</strong>
+          <div class="list">
+            ${others.map((row) => `
+              <div class="list-row">
+                <span><strong>${row.full_name}</strong><br><small class="muted">${row.subgroup || "Registered voter"} · ${row.voter_status || "Unknown"}</small></span>
+                <span></span>
+                <button class="link" data-open-constituent-file='${JSON.stringify({ constituentId: row.id }).replace(/'/g, "&apos;")}'>View File</button>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+      <div class="tabs">${subTabs.map((tab) => `<button class="tab ${state.constituentFileTab === tab ? "active" : ""}" data-constituent-file-tab="${tab}">${tabLabel[tab]}</button>`).join("")}</div>
+      <div class="panel-body">${constituentFileTabBody(file)}</div>
+    </section>
+  `;
+}
+
+function directoryTabView() {
+  if (state.constituentFile) {
+    return h`<section style="margin-top:16px">${constituentFileView(state.constituentFile)}</section>`;
+  }
   const summary = state.constituentSummary || {};
   const constituentKeys = ["full_name", "street_no", "street", "apt", "city", "state", "zip", "zip_code", "ward", "voter_status", "subgroup", "voter_id"];
   const caseKeys = ["constituent_name", "address_line", "phone", "email", "topic", "notes", "status", "priority"];
   const localRows = filterRows(state.constituents, constituentKeys);
   const citywideRows = filterRows(state.constituentSearch || state.constituents, constituentKeys);
   const matchingCases = filterRows(state.cases, caseKeys);
-  const primaryCase = state.cases[0];
-  const primaryConstituent = localRows[0] || state.constituents[0] || citywideRows[0];
-  if (!primaryCase && !primaryConstituent) {
-    return h`
-      <div class="page-head">
-        <div><h1>Constituents</h1><p class="muted">Operational constituent CRM. Import voter subgroups and add constituent needs to build timelines.</p></div>
-        <button class="primary" data-open-modal="case">Add Constituent Need</button>
-      </div>
-      <section class="panel"><div class="panel-body"><div class="empty">No constituents or constituent cases yet.</div></div></section>
-    `;
-  }
-  const heroName = primaryConstituent?.full_name || primaryCase.constituent_name;
-  const heroAddress = primaryConstituent
-    ? `${primaryConstituent.street_no} ${primaryConstituent.street}${primaryConstituent.apt ? ` Apt ${primaryConstituent.apt}` : ""}, ${primaryConstituent.city}, ${primaryConstituent.state} ${primaryConstituent.zip}`
-    : primaryCase.notes || "No address on file";
-  const heroStatus = primaryConstituent?.voter_status || primaryCase.status;
   return h`
-    <section class="panel">
-      <div class="panel-body constituent-hero">
-        <div class="portrait">${initials(heroName)}</div>
-        <div>
-          <h1>${heroName} <span class="status ${heroStatus === "Received" ? "good" : "warn"}">${heroStatus}</span></h1>
-          <p class="muted">${primaryConstituent?.subgroup || primaryCase.topic}<br>${heroAddress}<br><span class="blue">${primaryConstituent ? `Voter ID ${primaryConstituent.voter_id}` : `Case #${primaryCase.id}`}</span></p>
-        </div>
-        <div class="list">
-          <div class="list-row"><span>●</span><span>${primaryConstituent?.ward || primaryCase.priority}<br><small class="muted">${primaryConstituent ? "Ward" : "Priority"}</small></span><span></span></div>
-          <div class="list-row"><span>▣</span><span>${primaryConstituent?.mailin_sent_date || primaryCase.created_at?.slice(0, 10) || "Not dated"}<br><small class="muted">${primaryConstituent ? "Ballot sent" : "Created"}</small></span><span></span></div>
-          <div class="list-row"><span>→</span><span>${primaryConstituent?.mailin_received_date || "Follow-up list ready"}<br><small class="muted">${primaryConstituent ? "Ballot received" : "Next step"}</small></span><span></span></div>
-        </div>
-        <div>
-          <h3>Constituent Summary</h3>
-          <div class="budget-row"><span>Constituents</span><strong>${summary.total || state.constituents.length}</strong><span></span></div>
-          <div class="budget-row"><span>South Ward Active</span><strong class="blue">${(summary.by_ward || {}).South || state.constituents.length}</strong><span></span></div>
-          <div class="budget-row"><span>Outstanding</span><strong class="orange">${summary.outstanding || 0}</strong><span></span></div>
-          <div class="budget-row"><span>Received</span><strong class="green">${summary.received || 0}</strong><span></span></div>
-        </div>
-      </div>
-      <div class="tabs">${["overview", "south ward voters", "citywide search", "cases", "communications", "notes", "history", "documents"].map((tab) => `<button class="tab ${state.tab === tab ? "active" : ""}" data-tab="${tab}">${tab[0].toUpperCase() + tab.slice(1)}</button>`).join("")}</div>
-    </section>
-    <section class="grid wide-right" style="margin-top:16px">
-      <div class="grid two-col">
-        <section class="panel">
-          <div class="panel-header"><h2>South Ward Active Voters</h2><button class="secondary" data-open-draft="${heroName} Follow-up">Draft Follow-up</button></div>
-          <div class="panel-body timeline">
-            <div class="grid metrics compact-metrics">
-              ${metric((summary.by_ward || {}).South || state.constituents.length, "South Ward", "Local constituents", "blue")}
-              ${metric(summary.total || (state.constituentSearch || []).length, "Citywide", "Searchable voters", "green")}
-              ${metric(Object.keys(summary.by_ward || {}).length || 0, "Ward Markers", "Tagged records", "orange")}
-            </div>
-            <div class="panel-note">South Ward is the local constituent view. The full Orange active voter file remains available for search and case cross-reference. No outreach is sent automatically.</div>
-            ${constituentCrossReference(citywideRows, matchingCases)}
-            ${constituentRows(state.search.trim() ? citywideRows : localRows)}
+    <section class="grid two-col" style="margin-top:16px">
+      <section class="panel">
+        <div class="panel-header"><h2>Constituent Directory</h2><span class="muted">${summary.total || state.constituents.length} residents on file</span></div>
+        <div class="panel-body timeline">
+          <div class="grid metrics compact-metrics">
+            ${metric((summary.by_ward || {}).South || state.constituents.length, "South Ward", "Local constituents", "blue")}
+            ${metric(summary.total || (state.constituentSearch || []).length, "Citywide", "Searchable voters", "green")}
+            ${metric(summary.outstanding || 0, "Outstanding Ballots", "May 2026 mail-in", "orange")}
           </div>
-        </section>
-        <section class="panel">
-          <div class="panel-header"><h2>Open Cases</h2><button class="primary" data-open-modal="case">Add Case</button></div>
-          <div class="panel-body list">${caseRows(matchingCases)}</div>
-        </section>
-      </div>
-      ${constituentSidePanel()}
+          <div class="panel-note">Search a name or address using the global search above to cross-reference residents with open cases, then start a case directly from a match.</div>
+          ${constituentCrossReference(citywideRows, matchingCases)}
+          ${constituentRows(state.search.trim() ? citywideRows : localRows)}
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-header"><h2>Recent Notes</h2><button class="link" data-open-modal="note">Add</button></div>
+        <div class="panel-body list">
+          ${state.drafts.slice(-5).reverse().map((draft) => `<div class="list-row"><span><strong>${draft.title}</strong><br><small class="muted">${String(draft.notes || draft.body || "").slice(0, 80)}</small></span><span></span><span></span></div>`).join("") || "<p class='muted'>No shared notes yet.</p>"}
+        </div>
+      </section>
     </section>
   `;
 }
@@ -1186,33 +1735,26 @@ function caseRows(rows = null) {
 
 function constituentRows(rows) {
   if (!rows.length) return `<div class="empty">No constituents match this search.</div>`;
-  return rows.slice(0, 30).map((row) => h`
-    <div class="list-row">
-      <span><small class="muted">${row.voter_id}</small><br><strong>${row.full_name}</strong><br><small class="muted">${row.street_no} ${row.street}${row.apt ? ` Apt ${row.apt}` : ""}</small></span>
-      <span><small class="muted">Ward</small><br>${row.ward || "Unknown"}<br><small class="muted">${row.subgroup || "Registered voter"}</small></span>
-      <span class="status ${String(row.ward || "").toLowerCase() === "south" ? "good" : "warn"}">${String(row.ward || "").toLowerCase() === "south" ? "Local" : `${row.ward || "Other"} Ward`}</span>
-    </div>
-  `).join("");
-}
-
-function constituentSidePanel() {
-  const summary = state.constituentSummary || {};
+  const shown = rows.slice(0, 300);
+  const remainder = rows.length - shown.length;
   return h`
-    <div class="grid">
-      <section class="panel"><div class="panel-header"><h2>Constituent Details</h2></div><div class="panel-body">
-        <div class="budget-row"><span>Local List</span><strong>South Ward Active Voters</strong><span></span></div>
-        <div class="budget-row"><span>Citywide File</span><strong>${summary.total || (state.constituentSearch || []).length}</strong><span></span></div>
-        <div class="budget-row"><span>Ward Counts</span><strong>${Object.entries(summary.by_ward || {}).map(([ward, count]) => `${ward}: ${count}`).join(" · ") || "Pending"}</strong><span></span></div>
-        <div class="budget-row"><span>Auto-send</span><strong>Disabled</strong><span></span></div>
-        <div class="budget-row"><span>Notes</span><strong>Use manual actions for follow-ups and media/field coordination.</strong><span></span></div>
-      </div></section>
-      <section class="panel"><div class="panel-header"><h2>Recent Notes</h2><button class="link" data-open-modal="note">Add</button></div><div class="panel-body list">
-        ${state.drafts.slice(-3).reverse().map((draft) => `<div class="list-row"><span><strong>${draft.title}</strong><br><small class="muted">${String(draft.notes || draft.body || "").slice(0, 80)}</small></span><span></span><span></span></div>`).join("") || "<p class='muted'>No shared notes yet.</p>"}
-      </div></section>
-      <section class="panel"><div class="panel-header"><h2>Documents</h2><button class="link" data-open-draft="Document Upload">Upload</button></div><div class="panel-body list">
-        <div class="empty">No linked documents yet.</div>
-      </div></section>
+    <div class="directory-list-body">
+      ${shown.map((row) => {
+        const address = constituentAddress(row);
+        const caseCount = state.cases.filter((item) => item.constituent_name === row.full_name).length;
+        return h`
+          <button class="list-row ghost" data-open-constituent-file='${JSON.stringify({ constituentId: row.id }).replace(/'/g, "&apos;")}' style="text-align:left;width:100%">
+            <span><small class="muted">${row.voter_id}</small><br><strong>${row.full_name}</strong><br><small class="muted">${row.street_no} ${row.street}${row.apt ? ` Apt ${row.apt}` : ""}</small></span>
+            <span><small class="muted">Ward</small><br>${row.ward || "Unknown"}<br><small class="muted">${caseCount ? `${caseCount} case${caseCount > 1 ? "s" : ""} on file` : "No cases on file"}</small></span>
+            <span class="case-row-actions">
+              <span class="status ${String(row.ward || "").toLowerCase() === "south" ? "good" : "warn"}">${String(row.ward || "").toLowerCase() === "south" ? "Local" : `${row.ward || "Other"} Ward`}</span>
+              <span class="link" data-open-case-for='${JSON.stringify({ name: row.full_name, address }).replace(/'/g, "&apos;")}'>New Case</span>
+            </span>
+          </button>
+        `;
+      }).join("")}
     </div>
+    ${remainder > 0 ? `<div class="panel-note">${remainder} more match this search. Narrow your search to see them.</div>` : ""}
   `;
 }
 
@@ -2087,6 +2629,13 @@ function initOpenMaps() {
           .addTo(map)
           .bindPopup(`<strong>${pin.title}</strong><br>${pin.location}<br>${pin.category} · ${pin.severity}`);
       });
+    } else if (container.dataset.mapKind === "case") {
+      const lat = Number(container.dataset.lat);
+      const lng = Number(container.dataset.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        L.marker([lat, lng], { icon: markerIcon("blue", "●") }).addTo(map);
+        map.setView([lat, lng], 16);
+      }
     } else {
       operationalMapPins().forEach((pin) => {
         L.marker([pin.lat, pin.lng], { icon: markerIcon(pin.tone, pin.id) })
@@ -3038,7 +3587,7 @@ function buildSearchIndex() {
     page: "constituents",
     tone: String(item.ward || "").toLowerCase() === "south" ? "blue" : "orange",
     keywords: [item.voter_id, item.city, item.zip_code, item.zip, item.street_no, item.apt, item.subgroup],
-    action: { tab: String(item.ward || "").toLowerCase() === "south" ? "south ward voters" : "citywide search" },
+    action: { tab: "directory", constituentId: item.id, constituentName: item.full_name, constituentAddress: constituentAddress(item) },
   })));
   normalizedLegislationRows().forEach((item) => entries.push(searchEntry({
     section: "Legislation",
@@ -3204,6 +3753,18 @@ function applySearchResult(page, action = {}) {
   state.page = page || state.page;
   setMobileNav(false);
   render();
+  if (action.caseId) {
+    state.selectedCaseId = action.caseId;
+    state.caseDetailTab = "overview";
+    loadCaseDetail(action.caseId).then(render);
+  }
+  if (action.constituentId || action.constituentName) {
+    openConstituentFile({
+      constituentId: action.constituentId,
+      name: action.constituentName,
+      address: action.constituentAddress,
+    });
+  }
 }
 
 function eventTimeValue(row) {
@@ -3495,12 +4056,179 @@ function bindEvents() {
     state.dashboardOverview = await getJson("/dashboard/overview", state.dashboardOverview || operationalOverviewFallback());
     render();
   });
+  document.querySelectorAll("[data-select-case]").forEach((button) => {
+    button.addEventListener("click", () => selectCase(Number(button.dataset.selectCase)).catch(showSaveError));
+  });
+  document.querySelectorAll("[data-case-detail-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.caseDetailTab = button.dataset.caseDetailTab;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-case-filter]").forEach((select) => {
+    select.addEventListener("change", () => {
+      state.caseFilters[select.dataset.caseFilter] = select.value;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-case-quick-update]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const id = state.selectedCaseId;
+      if (id == null) return;
+      updateCase(id, { [input.dataset.caseQuickUpdate]: input.value }).then(render).catch(showSaveError);
+    });
+  });
+  document.querySelectorAll("[data-regenerate-summary]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = Number(button.dataset.regenerateSummary);
+      button.disabled = true;
+      button.textContent = "Generating…";
+      try {
+        await postJson(`/cases/${id}/ai-summary`, {});
+        await loadCaseDetail(id);
+      } catch (error) {
+        showSaveError(error);
+      }
+      render();
+    });
+  });
+  document.querySelectorAll("[data-convert-work-order]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = Number(button.dataset.convertWorkOrder);
+      try {
+        await postJson(`/cases/${id}/work-order`, {});
+        state.officeActions = await getJson("/office-actions", state.officeActions);
+        await loadCaseDetail(id);
+      } catch (error) {
+        showSaveError(error);
+      }
+      render();
+    });
+  });
+  document.querySelectorAll("[data-view-directory]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.tab = "directory";
+      state.search = button.dataset.viewDirectory;
+      render();
+      renderSearchPanel();
+    });
+  });
+  document.querySelectorAll("[data-open-case-for]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const payload = JSON.parse(button.dataset.openCaseFor);
+      openCaseModalFor(payload.name, payload.address);
+    });
+  });
+  document.querySelectorAll("[data-open-constituent-file]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const payload = JSON.parse(button.dataset.openConstituentFile);
+      openConstituentFile({ constituentId: payload.constituentId, name: payload.name, address: payload.address }).catch(showSaveError);
+    });
+  });
+  document.querySelector("[data-close-constituent-file]")?.addEventListener("click", closeConstituentFile);
+  document.querySelectorAll("[data-constituent-file-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.constituentFileTab = button.dataset.constituentFileTab;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-case-list-status]").forEach((select) => {
+    select.addEventListener("click", (event) => event.stopPropagation());
+    select.addEventListener("change", () => {
+      const id = Number(select.dataset.caseListStatus);
+      updateCase(id, { status: select.value }).then(render).catch(showSaveError);
+    });
+  });
+  document.querySelectorAll("[data-delete-case]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = Number(button.dataset.deleteCase);
+      const row = state.cases.find((item) => item.id === id);
+      if (!window.confirm(`Delete case ${row?.case_number || `#${id}`}? This removes its notes, communications, and files. This cannot be undone.`)) return;
+      try {
+        await deleteCase(id);
+        render();
+      } catch (error) {
+        showSaveError(error);
+      }
+    });
+  });
+  document.querySelectorAll("[data-edit-note]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.editingNoteId = Number(button.dataset.editNote);
+      render();
+    });
+  });
+  document.querySelectorAll("[data-cancel-edit-note]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.editingNoteId = null;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-edit-note-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const noteId = Number(form.dataset.editNoteForm);
+      const id = state.selectedCaseId;
+      const body = new FormData(form).get("body");
+      try {
+        await postJson(`/cases/${id}/notes/${noteId}`, { body });
+        state.editingNoteId = null;
+        await loadCaseDetail(id);
+        render();
+      } catch (error) {
+        showSaveError(error);
+      }
+    });
+  });
+  document.getElementById("caseNoteForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const id = state.selectedCaseId;
+    const form = new FormData(event.currentTarget);
+    try {
+      await postJson(`/cases/${id}/notes`, { body: form.get("body") });
+      await loadCaseDetail(id);
+      render();
+    } catch (error) {
+      showSaveError(error);
+    }
+  });
+  document.getElementById("caseCommunicationForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const id = state.selectedCaseId;
+    const payload = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      await postJson(`/cases/${id}/communications`, payload);
+      await loadCaseDetail(id);
+      render();
+    } catch (error) {
+      showSaveError(error);
+    }
+  });
+  document.getElementById("caseFileForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const id = state.selectedCaseId;
+    const form = event.currentTarget;
+    const fileInput = form.elements.file;
+    if (!fileInput.files.length) return;
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    try {
+      await postForm(`/cases/${id}/attachments`, formData);
+      state.cases = await getJson("/cases", state.cases);
+      await loadCaseDetail(id);
+      render();
+    } catch (error) {
+      showSaveError(error);
+    }
+  });
 }
 
 function openModal(type) {
   const titles = {
     quick: ["Quick Add", "Choose an Intake Type"],
-    case: ["Manual Add", "New Constituent Need"],
+    case: ["Manual Add", "New Constituent Case"],
     event: ["Manual Add", "New Event"],
     legislation: ["Manual Add", "New Legislation Item"],
     budget: ["Manual Add", "New Budget Watch Item"],
@@ -3514,6 +4242,14 @@ function openModal(type) {
   document.getElementById("modalBackdrop").classList.add("open");
   document.getElementById("modalBackdrop").setAttribute("aria-hidden", "false");
   bindModalForms(type);
+}
+
+function openCaseModalFor(name, address) {
+  openModal("case");
+  const form = document.getElementById("caseForm");
+  if (!form) return;
+  if (form.elements.constituent_name) form.elements.constituent_name.value = name || "";
+  if (form.elements.address_line) form.elements.address_line.value = address || "";
 }
 
 function openDraft(title) {
@@ -3580,10 +4316,16 @@ function modalContent(type) {
         <div class="field"><label>Phone</label><input name="phone" type="tel" placeholder="Optional phone number"></div>
         <div class="field"><label>Email</label><input name="email" type="email" placeholder="Optional email address"></div>
         <div class="field"><label>Need / Topic</label><input name="topic" required placeholder="Streetlight outage"></div>
-        <div class="field"><label>Priority</label><select name="priority"><option>normal</option><option>medium</option><option>high</option></select></div>
-        <div class="field"><label>Status</label><select name="status"><option>open</option><option>in progress</option><option>waiting</option><option>closed</option></select></div>
+        <div class="field"><label>Category</label><select name="category"><option value="">Uncategorized</option>${CASE_CATEGORIES.map((c) => `<option value="${c}">${c}</option>`).join("")}</select></div>
+        <div class="field"><label>Department</label><select name="department"><option value="">Unassigned</option>${CASE_DEPARTMENTS.map((d) => `<option value="${d}">${d}</option>`).join("")}</select></div>
+        <div class="field"><label>Assigned To</label><input name="assigned_to" placeholder="Staff member or team"></div>
+        <div class="field"><label>Ward</label><select name="ward">${CASE_WARDS.map((w) => `<option value="${w}" ${w === "South Ward" ? "selected" : ""}>${w}</option>`).join("")}</select></div>
+        <div class="field"><label>Source</label><select name="source">${CASE_SOURCES.map((s) => `<option value="${s}">${s}</option>`).join("")}</select></div>
+        <div class="field"><label>Priority</label><select name="priority">${CASE_PRIORITIES.map((p) => `<option value="${p}" ${p === "normal" ? "selected" : ""}>${p}</option>`).join("")}</select></div>
+        <div class="field"><label>Status</label><select name="status">${CASE_STATUSES.map((s) => `<option value="${s}" ${s === "open" ? "selected" : ""}>${s}</option>`).join("")}</select></div>
+        <div class="field"><label>Resolution Goal</label><input name="due_at" type="datetime-local"></div>
         <div class="field"><label>Notes</label><textarea name="notes" placeholder="Location, department, missing details, and next action"></textarea></div>
-        <button class="primary" type="submit">Add Constituent Need</button>
+        <button class="primary" type="submit">Add Constituent Case</button>
       </form>
     `;
   }
@@ -3658,8 +4400,11 @@ function bindModalForms(type) {
   const handlers = {
     case: async (form) => {
       const payload = Object.fromEntries(new FormData(form));
-      await postJson("/cases", payload);
+      if (!payload.due_at) delete payload.due_at;
+      const created = await postJson("/cases", payload);
       await refreshOperationalData();
+      state.tab = "cases";
+      await selectCase(created.id);
     },
     event: async (form) => {
       const payload = Object.fromEntries(new FormData(form));

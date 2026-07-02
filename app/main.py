@@ -4,7 +4,7 @@ import json
 import logging
 import time as time_module
 import requests
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, time
@@ -46,6 +46,9 @@ from app.google_sheet_sync import google_sheet_writer_status, sync_memory_to_goo
 from app.models import (
     AuditLog,
     BudgetWatchItem,
+    CaseAttachment,
+    CaseCommunication,
+    CaseNote,
     CityBulletin,
     Constituent,
     ConstituentCase,
@@ -99,11 +102,52 @@ class CaseCreate(StrictModel):
     phone: str = Field(default="", max_length=80)
     email: str = Field(default="", max_length=255)
     topic: str = Field(min_length=2, max_length=255)
+    category: str = Field(default="", max_length=120)
+    department: str = Field(default="", max_length=120)
+    assigned_to: str = Field(default="", max_length=255)
+    ward: str = Field(default="South Ward", max_length=120)
+    source: str = Field(default="Phone Call", max_length=80)
     status: str = Field(default="open", max_length=80)
     priority: str = Field(default="normal", max_length=80)
     notes: str = Field(default="", max_length=5000)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    due_at: Optional[datetime] = None
+
+
+class CaseUpdate(StrictModel):
+    constituent_name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    address_line: Optional[str] = Field(default=None, max_length=500)
+    phone: Optional[str] = Field(default=None, max_length=80)
+    email: Optional[str] = Field(default=None, max_length=255)
+    topic: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    category: Optional[str] = Field(default=None, max_length=120)
+    department: Optional[str] = Field(default=None, max_length=120)
+    assigned_to: Optional[str] = Field(default=None, max_length=255)
+    ward: Optional[str] = Field(default=None, max_length=120)
+    source: Optional[str] = Field(default=None, max_length=80)
+    status: Optional[str] = Field(default=None, max_length=80)
+    priority: Optional[str] = Field(default=None, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=5000)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    due_at: Optional[datetime] = None
+
+
+class CaseNoteCreate(StrictModel):
+    body: str = Field(min_length=1, max_length=5000)
+    author: str = Field(default="local_staff", max_length=255)
+
+
+class CaseNoteUpdate(StrictModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
+class CaseCommunicationCreate(StrictModel):
+    channel: str = Field(default="phone", max_length=40)
+    direction: str = Field(default="outbound", max_length=20)
+    summary: str = Field(default="", max_length=5000)
+    author: str = Field(default="local_staff", max_length=255)
 
 
 class LegislationCreate(StrictModel):
@@ -276,16 +320,24 @@ def restore_cases_from_log(db: Session) -> int:
         if not row.get("constituent_name") or not row.get("topic") or case_exists(db, row):
             continue
         case = ConstituentCase(
+            constituent_id=int(row["constituent_id"]) if row.get("constituent_id") else None,
             constituent_name=str(row.get("constituent_name") or ""),
             address_line=str(row.get("address_line") or ""),
             phone=str(row.get("phone") or ""),
             email=str(row.get("email") or ""),
             topic=str(row.get("topic") or ""),
+            category=str(row.get("category") or ""),
+            department=str(row.get("department") or ""),
+            assigned_to=str(row.get("assigned_to") or ""),
+            ward=str(row.get("ward") or "South Ward"),
+            source=str(row.get("source") or "Phone Call"),
             status=str(row.get("status") or "open"),
             priority=str(row.get("priority") or "normal"),
             notes=str(row.get("notes") or ""),
             latitude=float(row["latitude"]) if row.get("latitude") else None,
             longitude=float(row["longitude"]) if row.get("longitude") else None,
+            due_at=parse_case_datetime(str(row.get("due_at") or "")),
+            resolved_at=parse_case_datetime(str(row.get("resolved_at") or "")),
             created_at=parse_case_datetime(str(row.get("created_at") or "")) or datetime.utcnow(),
         )
         db.add(case)
@@ -619,6 +671,11 @@ def constituent_lookup_address(row: Constituent) -> str:
     ] if part))
 
 
+def format_constituent_address(row: Constituent) -> str:
+    parts = [row.street_no, row.street, f"Apt {row.apt}" if row.apt else "", row.city, row.state, row.zip_code]
+    return " ".join(part for part in parts if part)
+
+
 def find_matching_constituent(db: Session, case: ConstituentCase):
     name = normalize_lookup(case.constituent_name)
     address = normalize_lookup(case.address_line)
@@ -634,9 +691,41 @@ def find_matching_constituent(db: Session, case: ConstituentCase):
     return None
 
 
+def case_number(row: ConstituentCase) -> str:
+    year = row.created_at.year if row.created_at else datetime.utcnow().year
+    return f"C-{year}-{row.id:04d}"
+
+
+def geocode_address(address: str) -> tuple[float, float] | None:
+    """Best-effort geocode via the free US Census geocoder. Returns None on
+    any failure (no network, no match, service down) instead of raising, so
+    a slow/unreachable geocoder never blocks saving a case."""
+    address = (address or "").strip()
+    if not address:
+        return None
+    try:
+        response = requests.get(
+            "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress",
+            params={"address": address, "benchmark": "Public_AR_Current", "format": "json"},
+            timeout=5,
+        )
+        response.raise_for_status()
+        matches = response.json().get("result", {}).get("addressMatches", [])
+        if not matches:
+            return None
+        coordinates = matches[0].get("coordinates", {})
+        lat, lng = coordinates.get("y"), coordinates.get("x")
+        if lat is None or lng is None:
+            return None
+        return float(lat), float(lng)
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return None
+
+
 def serialize_case_with_constituent(row: ConstituentCase, db: Session):
     payload = serialize_case(row)
-    match = find_matching_constituent(db, row)
+    payload["case_number"] = case_number(row)
+    match = db.get(Constituent, row.constituent_id) if row.constituent_id else find_matching_constituent(db, row)
     if match:
         payload["matched_constituent_id"] = match.id
         payload["matched_constituent_voter_id"] = match.voter_id
@@ -647,7 +736,56 @@ def serialize_case_with_constituent(row: ConstituentCase, db: Session):
         payload["matched_constituent_voter_id"] = None
         payload["matched_constituent_ward"] = ""
         payload["outside_local_ward"] = False
+    payload["notes_count"] = db.query(CaseNote).filter(CaseNote.case_id == row.id).count()
+    payload["communications_count"] = db.query(CaseCommunication).filter(CaseCommunication.case_id == row.id).count()
+    payload["attachments_count"] = db.query(CaseAttachment).filter(CaseAttachment.case_id == row.id).count()
     return payload
+
+
+def serialize_case_note(row: CaseNote) -> dict:
+    return {
+        "id": row.id,
+        "case_id": row.case_id,
+        "author": row.author,
+        "body": row.body,
+        "created_at": serialize_dt(row.created_at),
+        "edited_at": serialize_dt(row.edited_at),
+    }
+
+
+def serialize_case_communication(row: CaseCommunication) -> dict:
+    return {
+        "id": row.id,
+        "case_id": row.case_id,
+        "channel": row.channel,
+        "direction": row.direction,
+        "summary": row.summary,
+        "author": row.author,
+        "created_at": serialize_dt(row.created_at),
+    }
+
+
+def serialize_case_attachment(row: CaseAttachment) -> dict:
+    return {
+        "id": row.id,
+        "case_id": row.case_id,
+        "original_name": row.original_name,
+        "content_type": row.content_type,
+        "size_bytes": row.size_bytes,
+        "uploaded_by": row.uploaded_by,
+        "created_at": serialize_dt(row.created_at),
+        "download_url": f"/cases/{row.case_id}/attachments/{row.id}",
+    }
+
+
+def serialize_activity_entry(row: AuditLog) -> dict:
+    return {
+        "id": row.id,
+        "actor": row.actor,
+        "action": row.action,
+        "detail": row.detail,
+        "created_at": serialize_dt(row.created_at),
+    }
 
 
 @app.get("/constituents")
@@ -674,7 +812,7 @@ def constituents(subgroup: str = "", ward: str = "", q: str = "", limit: int = 2
             Constituent.voter_id.ilike(term),
             Constituent.notes.ilike(term),
         ))
-    rows = query.limit(min(max(limit, 1), 2000)).all()
+    rows = query.limit(min(max(limit, 1), 20000)).all()
     return [serialize_constituent(row) for row in rows]
 
 
@@ -712,6 +850,97 @@ def constituents_summary(_auth: AuthContext = Depends(require_staff_access), db:
     }
 
 
+@app.get("/constituents/file")
+def constituent_file(
+    constituent_id: int = 0,
+    name: str = "",
+    address: str = "",
+    _auth: AuthContext = Depends(require_staff_access),
+    db: Session = Depends(get_db),
+):
+    primary = db.get(Constituent, constituent_id) if constituent_id else None
+    if not primary and name.strip():
+        primary = db.query(Constituent).filter(Constituent.full_name.ilike(name.strip())).first()
+
+    resolved_address = address.strip()
+    if not resolved_address and primary:
+        resolved_address = format_constituent_address(primary)
+
+    residents: list[Constituent] = []
+    if resolved_address:
+        norm_target = normalize_lookup(resolved_address)
+        tokens = resolved_address.split()
+        street_token = tokens[1] if len(tokens) > 1 else resolved_address
+        candidates = db.query(Constituent).filter(Constituent.street.ilike(f"%{street_token}%")).limit(500).all()
+        residents = [row for row in candidates if normalize_lookup(format_constituent_address(row)) == norm_target]
+
+    seen_names = set()
+    deduped: list[Constituent] = []
+    for row in residents:
+        key = normalize_lookup(row.full_name)
+        if key in seen_names:
+            continue
+        seen_names.add(key)
+        deduped.append(row)
+    residents = deduped
+
+    if primary and normalize_lookup(primary.full_name) not in seen_names:
+        residents.insert(0, primary)
+
+    if not residents and not primary:
+        raise HTTPException(status_code=404, detail="Constituent not found")
+    if not primary:
+        primary = residents[0]
+
+    resident_ids = {row.id for row in residents}
+    resident_names = {normalize_lookup(row.full_name) for row in residents}
+
+    all_cases = db.query(ConstituentCase).order_by(ConstituentCase.created_at.desc()).all()
+    matched_cases = [
+        case for case in all_cases
+        if case.constituent_id in resident_ids
+        or normalize_lookup(case.constituent_name) in resident_names
+        or (resolved_address and normalize_lookup(case.address_line) == normalize_lookup(resolved_address))
+    ]
+    case_ids = [case.id for case in matched_cases]
+    case_lookup = {case.id: case for case in matched_cases}
+
+    notes = db.query(CaseNote).filter(CaseNote.case_id.in_(case_ids)).order_by(CaseNote.created_at.desc()).all() if case_ids else []
+    communications = (
+        db.query(CaseCommunication).filter(CaseCommunication.case_id.in_(case_ids)).order_by(CaseCommunication.created_at.desc()).all()
+        if case_ids else []
+    )
+    attachments = (
+        db.query(CaseAttachment).filter(CaseAttachment.case_id.in_(case_ids)).order_by(CaseAttachment.created_at.desc()).all()
+        if case_ids else []
+    )
+    activity = (
+        db.query(AuditLog)
+        .filter(AuditLog.entity_type == "constituent_case", AuditLog.entity_id.in_([str(cid) for cid in case_ids]))
+        .order_by(AuditLog.created_at.desc())
+        .limit(300)
+        .all()
+        if case_ids else []
+    )
+
+    def with_case_context(payload: dict, case_id: int) -> dict:
+        case = case_lookup.get(case_id)
+        payload["case_number"] = case_number(case) if case else None
+        payload["case_topic"] = case.topic if case else None
+        return payload
+
+    return {
+        "primary": serialize_constituent(primary),
+        "residents": [serialize_constituent(row) for row in residents],
+        "address": resolved_address,
+        "cases": [serialize_case_with_constituent(case, db) for case in matched_cases],
+        "notes": [with_case_context(serialize_case_note(note), note.case_id) for note in notes],
+        "communications": [with_case_context(serialize_case_communication(comm), comm.case_id) for comm in communications],
+        "attachments": [with_case_context(serialize_case_attachment(attachment), attachment.case_id) for attachment in attachments],
+        "activity": [serialize_activity_entry(entry) for entry in activity],
+    }
+
+
 @app.get("/cases")
 def constituent_cases(_auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     restore_cases_from_log(db)
@@ -723,6 +952,13 @@ def constituent_cases(_auth: AuthContext = Depends(require_staff_access), db: Se
 @app.post("/cases")
 def create_constituent_case(payload: CaseCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     row = ConstituentCase(**payload.model_dump())
+    match = find_matching_constituent(db, row)
+    if match:
+        row.constituent_id = match.id
+    if row.latitude is None or row.longitude is None:
+        coordinates = geocode_address(row.address_line)
+        if coordinates:
+            row.latitude, row.longitude = coordinates
     db.add(row)
     db.flush()
     audit(db, "create", "constituent_case", row.id, row.topic, actor=auth.actor)
@@ -732,12 +968,300 @@ def create_constituent_case(payload: CaseCreate, auth: AuthContext = Depends(req
     return {**serialize_case_with_constituent(row, db), "status": row.status, "save_status": "created", "persistent": True}
 
 
+@app.get("/cases/summary")
+def constituent_cases_summary(_auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    restore_cases_from_log(db)
+    rows = db.query(ConstituentCase).all()
+    now = datetime.utcnow()
+    thirty_days_ago = now - timedelta(days=30)
+    total = len(rows)
+    open_count = sum(1 for row in rows if row.status == "open")
+    in_progress_count = sum(1 for row in rows if row.status in {"in progress", "assigned", "waiting"})
+    resolved_recent = [row for row in rows if row.status in {"resolved", "closed"} and row.resolved_at and row.resolved_at >= thirty_days_ago]
+    overdue_count = sum(
+        1 for row in rows
+        if row.due_at and row.due_at < now and row.status not in {"resolved", "closed"}
+    )
+    resolution_days = [
+        (row.resolved_at - row.created_at).total_seconds() / 86400
+        for row in rows
+        if row.resolved_at and row.created_at
+    ]
+    return {
+        "total": total,
+        "open": open_count,
+        "in_progress": in_progress_count,
+        "resolved_30d": len(resolved_recent),
+        "overdue": overdue_count,
+        "avg_resolution_days": round(sum(resolution_days) / len(resolution_days), 1) if resolution_days else None,
+    }
+
+
 @app.get("/cases/export.csv")
 def export_constituent_cases(_auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
     restore_cases_from_log(db)
     rows = db.query(ConstituentCase).order_by(ConstituentCase.created_at.desc()).all()
     path = write_case_log(rows)
     return FileResponse(path, media_type="text/csv", filename="wardos_constituent_cases.csv")
+
+
+@app.get("/cases/{case_id}")
+def constituent_case_detail(case_id: int, _auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    row = db.get(ConstituentCase, case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found")
+    notes = db.query(CaseNote).filter(CaseNote.case_id == case_id).order_by(CaseNote.created_at.desc()).all()
+    communications = db.query(CaseCommunication).filter(CaseCommunication.case_id == case_id).order_by(CaseCommunication.created_at.desc()).all()
+    attachments = db.query(CaseAttachment).filter(CaseAttachment.case_id == case_id).order_by(CaseAttachment.created_at.desc()).all()
+    activity = (
+        db.query(AuditLog)
+        .filter(AuditLog.entity_type == "constituent_case", AuditLog.entity_id == str(case_id))
+        .order_by(AuditLog.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    linked_query = db.query(ConstituentCase).filter(ConstituentCase.id != case_id)
+    if row.constituent_id:
+        linked_cases = linked_query.filter(ConstituentCase.constituent_id == row.constituent_id).order_by(ConstituentCase.created_at.desc()).limit(10).all()
+    elif row.address_line:
+        linked_cases = linked_query.filter(ConstituentCase.address_line == row.address_line).order_by(ConstituentCase.created_at.desc()).limit(10).all()
+    else:
+        linked_cases = []
+    return {
+        "case": serialize_case_with_constituent(row, db),
+        "notes": [serialize_case_note(note) for note in notes],
+        "communications": [serialize_case_communication(comm) for comm in communications],
+        "attachments": [serialize_case_attachment(attachment) for attachment in attachments],
+        "activity": [serialize_activity_entry(entry) for entry in activity],
+        "linked_cases": [serialize_case_with_constituent(linked, db) for linked in linked_cases],
+    }
+
+
+@app.post("/cases/{case_id}")
+def update_constituent_case(case_id: int, payload: CaseUpdate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    row = db.get(ConstituentCase, case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found")
+    updates = payload.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        previous = getattr(row, field)
+        if previous == value:
+            continue
+        setattr(row, field, value)
+        audit(db, "update", "constituent_case", row.id, f"{field}: {previous!r} -> {value!r}", actor=auth.actor)
+    if "status" in updates:
+        if updates["status"] in {"resolved", "closed"} and not row.resolved_at:
+            row.resolved_at = datetime.utcnow()
+        elif updates["status"] not in {"resolved", "closed"}:
+            row.resolved_at = None
+    if updates and not row.constituent_id and ("constituent_name" in updates or "address_line" in updates):
+        match = find_matching_constituent(db, row)
+        if match:
+            row.constituent_id = match.id
+    if "address_line" in updates and "latitude" not in updates and "longitude" not in updates:
+        coordinates = geocode_address(row.address_line)
+        row.latitude, row.longitude = coordinates if coordinates else (None, None)
+    db.commit()
+    db.refresh(row)
+    write_case_log(db.query(ConstituentCase).order_by(ConstituentCase.created_at.desc()).all())
+    return serialize_case_with_constituent(row, db)
+
+
+@app.post("/cases/{case_id}/delete")
+def delete_constituent_case(case_id: int, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    row = db.get(ConstituentCase, case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found")
+    topic = row.topic
+    attachments = db.query(CaseAttachment).filter(CaseAttachment.case_id == case_id).all()
+    for attachment in attachments:
+        path = CASE_ATTACHMENT_DIR / str(case_id) / attachment.stored_name
+        if path.exists():
+            path.unlink()
+    db.query(CaseAttachment).filter(CaseAttachment.case_id == case_id).delete()
+    db.query(CaseNote).filter(CaseNote.case_id == case_id).delete()
+    db.query(CaseCommunication).filter(CaseCommunication.case_id == case_id).delete()
+    db.delete(row)
+    db.flush()
+    audit(db, "delete", "constituent_case", case_id, f"Deleted case: {topic}", actor=auth.actor)
+    db.commit()
+    write_case_log(db.query(ConstituentCase).order_by(ConstituentCase.created_at.desc()).all())
+    return {"ok": True, "deleted_id": case_id}
+
+
+@app.post("/cases/{case_id}/notes")
+def add_case_note(case_id: int, payload: CaseNoteCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    row = db.get(ConstituentCase, case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found")
+    note = CaseNote(case_id=case_id, author=payload.author or auth.actor, body=payload.body)
+    db.add(note)
+    db.flush()
+    audit(db, "note_added", "constituent_case", case_id, payload.body[:200], actor=auth.actor)
+    db.commit()
+    db.refresh(note)
+    return serialize_case_note(note)
+
+
+@app.post("/cases/{case_id}/notes/{note_id}")
+def update_case_note(case_id: int, note_id: int, payload: CaseNoteUpdate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    note = db.get(CaseNote, note_id)
+    if not note or note.case_id != case_id:
+        raise HTTPException(status_code=404, detail="Note not found")
+    note.body = payload.body
+    note.edited_at = datetime.utcnow()
+    db.flush()
+    audit(db, "note_edited", "constituent_case", case_id, payload.body[:200], actor=auth.actor)
+    db.commit()
+    db.refresh(note)
+    return serialize_case_note(note)
+
+
+@app.post("/cases/{case_id}/communications")
+def add_case_communication(case_id: int, payload: CaseCommunicationCreate, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    row = db.get(ConstituentCase, case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found")
+    communication = CaseCommunication(
+        case_id=case_id,
+        channel=payload.channel,
+        direction=payload.direction,
+        summary=payload.summary,
+        author=payload.author or auth.actor,
+    )
+    db.add(communication)
+    db.flush()
+    audit(db, "communication_logged", "constituent_case", case_id, f"{payload.channel} ({payload.direction}): {payload.summary[:180]}", actor=auth.actor)
+    db.commit()
+    db.refresh(communication)
+    return serialize_case_communication(communication)
+
+
+ATTACHMENT_ALLOWED_EXTENSIONS = {
+    "jpg", "jpeg", "png", "gif", "webp", "heic",
+    "pdf", "doc", "docx", "xls", "xlsx", "txt", "csv",
+}
+ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024
+CASE_ATTACHMENT_DIR = DATA_DIR / "case_attachments"
+
+
+@app.post("/cases/{case_id}/attachments")
+async def upload_case_attachment(case_id: int, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db), file: UploadFile = File(...)):
+    row = db.get(ConstituentCase, case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found")
+    original_name = file.filename or "upload"
+    extension = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if extension not in ATTACHMENT_ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: .{extension}")
+    contents = await file.read()
+    if len(contents) > ATTACHMENT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File exceeds the 20 MB upload limit")
+    case_dir = CASE_ATTACHMENT_DIR / str(case_id)
+    case_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid4().hex}.{extension}"
+    (case_dir / stored_name).write_bytes(contents)
+    attachment = CaseAttachment(
+        case_id=case_id,
+        original_name=original_name[:500],
+        stored_name=stored_name,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(contents),
+        uploaded_by=auth.actor,
+    )
+    db.add(attachment)
+    db.flush()
+    audit(db, "file_uploaded", "constituent_case", case_id, original_name, actor=auth.actor)
+    db.commit()
+    db.refresh(attachment)
+    return serialize_case_attachment(attachment)
+
+
+@app.get("/cases/{case_id}/attachments/{attachment_id}")
+def download_case_attachment(case_id: int, attachment_id: int, _auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    attachment = db.get(CaseAttachment, attachment_id)
+    if not attachment or attachment.case_id != case_id:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    path = CASE_ATTACHMENT_DIR / str(case_id) / attachment.stored_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Attachment file missing on disk")
+    return FileResponse(path, media_type=attachment.content_type or "application/octet-stream", filename=attachment.original_name or attachment.stored_name)
+
+
+@app.post("/cases/{case_id}/work-order")
+def convert_case_to_work_order(case_id: int, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    row = db.get(ConstituentCase, case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found")
+    action = OfficeAction(
+        title=f"Work Order: {row.topic}",
+        action_type="work_order",
+        status="draft",
+        priority=row.priority or "normal",
+        owner=row.assigned_to or row.department,
+        due_at=row.due_at,
+        source_type="constituent_case",
+        source_id=str(row.id),
+        notes=row.notes,
+    )
+    db.add(action)
+    db.flush()
+    audit(db, "converted_to_work_order", "constituent_case", case_id, f"Office action #{action.id}", actor=auth.actor)
+    db.commit()
+    db.refresh(action)
+    return {
+        "id": action.id,
+        "title": action.title,
+        "status": action.status,
+        "owner": action.owner,
+        "source_type": action.source_type,
+        "source_id": action.source_id,
+    }
+
+
+@app.post("/cases/{case_id}/ai-summary")
+def generate_case_ai_summary(case_id: int, auth: AuthContext = Depends(require_staff_access), db: Session = Depends(get_db)):
+    row = db.get(ConstituentCase, case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found")
+    settings = get_settings()
+    prompt = (
+        "You are a municipal council office assistant. Write a concise 2-3 sentence internal case summary "
+        "for staff, covering the issue, likely urgency, and a recommended next step. Do not invent facts "
+        "beyond what is given.\n\n"
+        f"Case topic: {row.topic}\n"
+        f"Category: {row.category or 'Unspecified'}\n"
+        f"Status: {row.status}\n"
+        f"Priority: {row.priority}\n"
+        f"Department: {row.department or 'Unassigned'}\n"
+        f"Address: {row.address_line or 'Not provided'}\n"
+        f"Notes: {row.notes or 'None provided'}\n"
+    )
+    try:
+        response = requests.post(
+            f"{settings.ollama_base_url}/api/generate",
+            json={"model": settings.ollama_model, "prompt": prompt, "stream": False},
+            timeout=20,
+        )
+        response.raise_for_status()
+        summary = str(response.json().get("response", "")).strip()
+        if not summary:
+            raise ValueError("Ollama returned an empty response")
+    except (requests.RequestException, ValueError) as exc:
+        return {
+            "ok": False,
+            "ai_summary": row.ai_summary,
+            "ai_summary_generated_at": serialize_dt(row.ai_summary_generated_at),
+            "error": f"Ollama isn't reachable right now ({exc}). Start Ollama on the Mac mini, then retry.",
+        }
+    row.ai_summary = summary
+    row.ai_summary_generated_at = datetime.utcnow()
+    audit(db, "ai_summary_generated", "constituent_case", case_id, summary[:200], actor=auth.actor)
+    db.commit()
+    db.refresh(row)
+    return {"ok": True, "ai_summary": row.ai_summary, "ai_summary_generated_at": serialize_dt(row.ai_summary_generated_at)}
+
+
 
 
 @app.get("/legislation")

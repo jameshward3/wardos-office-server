@@ -23,13 +23,19 @@ class Settings(BaseSettings):
     postgres_host: str = "postgres"
     postgres_port: int = 5432
     ollama_base_url: str = "http://host.docker.internal:11434"
+    ollama_model: str = "llama3.1"
     secret_key: str = "change-me-local-only"
     github_token: str = ""
     sample_mode: bool = False
     allowed_origins_csv: str = ",".join(_default_allowed_origins())
     allow_local_unsafe_requests: bool = True
-    trusted_local_hosts_csv: str = "127.0.0.1,::1,localhost,host.docker.internal"
-    trusted_proxy_ips_csv: str = "127.0.0.1,::1"
+    # 172.16.0.0/12 covers Docker's default bridge network address pools, so
+    # container-to-container calls (e.g. the nginx frontend calling this API)
+    # are trusted the same way true loopback traffic is. The API itself stays
+    # bound to 127.0.0.1 on the host (see docker-compose.yml API_BIND), so this
+    # does not expose anything beyond the local Docker Compose stack.
+    trusted_local_hosts_csv: str = "127.0.0.1,::1,localhost,host.docker.internal,172.16.0.0/12"
+    trusted_proxy_ips_csv: str = "127.0.0.1,::1,172.16.0.0/12"
     api_bearer_token: str = ""
     rate_limit_per_minute: int = 120
     login_rate_limit_per_minute: int = 10
