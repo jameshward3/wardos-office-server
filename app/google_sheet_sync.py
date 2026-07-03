@@ -36,6 +36,9 @@ def _load_service_account_info() -> dict | None:
 
     if file_path:
         path = Path(file_path)
+        if not path.exists() and file_path.startswith("/app/data/"):
+            local_data_dir = Path(os.getenv("WARDOS_DATA_DIR", "data"))
+            path = local_data_dir / file_path.removeprefix("/app/data/")
         if not path.exists():
             raise FileNotFoundError(f"WardOS Google service account file not found: {file_path}")
         return json.loads(path.read_text(encoding="utf-8"))
