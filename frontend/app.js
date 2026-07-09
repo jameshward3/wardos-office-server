@@ -343,10 +343,10 @@ async function updateCase(id, patch) {
 }
 
 async function deleteCase(id) {
-  await postJson(`/cases/${id}/delete`, {});
+  await postJson(`/cases/${id}/delete`, { confirmation: "DELETE" });
   state.cases = await getJson("/cases", state.cases);
   state.caseSummary = await getJson("/cases/summary", state.caseSummary);
-  if (state.selectedCaseId === id) {
+  if (String(state.selectedCaseId) === String(id)) {
     state.selectedCaseId = state.cases[0]?.id ?? null;
     await loadCaseDetail(state.selectedCaseId);
   }
@@ -1222,7 +1222,7 @@ function caseFilterBar() {
 }
 
 function caseListItem(row) {
-  const active = state.selectedCaseId === row.id;
+  const active = String(state.selectedCaseId) === String(row.id);
   return h`
     <div class="case-list-row ${active ? "active" : ""}">
       <button class="case-list-main-btn" data-select-case="${row.id}">
@@ -1394,7 +1394,7 @@ function caseNotesTab(detail) {
     </form>
     <div class="list">
       ${detail.notes.length ? detail.notes.map((note) => {
-        if (state.editingNoteId === note.id) {
+        if (String(state.editingNoteId) === String(note.id)) {
           return h`
             <form class="list-row edit-note-form" data-edit-note-form="${note.id}">
               <textarea name="body" required>${note.body}</textarea>
@@ -4057,7 +4057,7 @@ function bindEvents() {
     render();
   });
   document.querySelectorAll("[data-select-case]").forEach((button) => {
-    button.addEventListener("click", () => selectCase(Number(button.dataset.selectCase)).catch(showSaveError));
+    button.addEventListener("click", () => selectCase(button.dataset.selectCase).catch(showSaveError));
   });
   document.querySelectorAll("[data-case-detail-tab]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -4080,7 +4080,7 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-regenerate-summary]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const id = Number(button.dataset.regenerateSummary);
+      const id = button.dataset.regenerateSummary;
       button.disabled = true;
       button.textContent = "Generating…";
       try {
@@ -4094,7 +4094,7 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-convert-work-order]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const id = Number(button.dataset.convertWorkOrder);
+      const id = button.dataset.convertWorkOrder;
       try {
         await postJson(`/cases/${id}/work-order`, {});
         state.officeActions = await getJson("/office-actions", state.officeActions);
@@ -4137,15 +4137,18 @@ function bindEvents() {
   document.querySelectorAll("[data-case-list-status]").forEach((select) => {
     select.addEventListener("click", (event) => event.stopPropagation());
     select.addEventListener("change", () => {
-      const id = Number(select.dataset.caseListStatus);
+      const id = select.dataset.caseListStatus;
       updateCase(id, { status: select.value }).then(render).catch(showSaveError);
     });
   });
   document.querySelectorAll("[data-delete-case]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const id = Number(button.dataset.deleteCase);
-      const row = state.cases.find((item) => item.id === id);
-      if (!window.confirm(`Delete case ${row?.case_number || `#${id}`}? This removes its notes, communications, and files. This cannot be undone.`)) return;
+      const id = button.dataset.deleteCase;
+      const row = state.cases.find((item) => String(item.id) === String(id));
+      const label = row?.case_number || `#${id}`;
+      if (!window.confirm(`Delete case ${label}? This removes it from active dashboards but keeps an audit trail.`)) return;
+      const typed = window.prompt(`Final confirmation for ${label}: type DELETE to remove this case from active records.`);
+      if (String(typed || "").trim().toUpperCase() !== "DELETE") return;
       try {
         await deleteCase(id);
         render();
@@ -4156,7 +4159,7 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-edit-note]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.editingNoteId = Number(button.dataset.editNote);
+      state.editingNoteId = button.dataset.editNote;
       render();
     });
   });
@@ -4169,7 +4172,7 @@ function bindEvents() {
   document.querySelectorAll("[data-edit-note-form]").forEach((form) => {
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const noteId = Number(form.dataset.editNoteForm);
+      const noteId = form.dataset.editNoteForm;
       const id = state.selectedCaseId;
       const body = new FormData(form).get("body");
       try {
