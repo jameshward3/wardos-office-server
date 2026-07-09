@@ -401,7 +401,7 @@ function mergeConstituentSearch(rows) {
     const key = row.voter_id || row.id || `${row.full_name}:${row.street_no}:${row.street}:${row.apt}`;
     if (key) byKey.set(String(key), row);
   });
-  state.constituentSearch = Array.from(byKey.values()).slice(0, 2000);
+  state.constituentSearch = Array.from(byKey.values()).slice(0, 50000);
 }
 
 function scheduleConstituentDeepSearch(query) {
@@ -437,7 +437,7 @@ async function loadData() {
 
   state.dashboardOverview = await getJson("/dashboard/overview", operationalOverviewFallback());
   state.briefing = await getJson("/briefing/daily", fallbackBriefing);
-  state.constituents = await getJson("/constituents?ward=South&limit=6000", []);
+  state.constituents = await getJson("/constituents?limit=50000", []);
   state.constituentSearch = state.constituents;
   state.constituentSummary = await getJson("/constituents/summary", null);
   state.cases = await getJson("/cases", []);
@@ -1571,6 +1571,19 @@ function constituentFileView(file) {
   const primary = file.primary;
   const address = file.address || constituentAddress(primary);
   const others = file.residents.filter((row) => row.id !== primary.id);
+  const wardLabel = normalizeWardLabel(primary.ward);
+  const district = constituentField(primary, ["district", "voting_district", "precinct", "election_district"], "Not on file");
+  const age = constituentAge(primary);
+  const gender = constituentField(primary, ["gender", "sex"], "Not on file");
+  const party = constituentField(primary, ["party", "party_affiliation"], "Future source");
+  const employer = constituentField(primary, ["employer", "occupation"], "Future source");
+  const householdPayload = {
+    name: `${primary.full_name} household`,
+    address,
+    ward: primary.ward || "",
+    groupLabel: "Household",
+    groupMembers: file.residents.map((row) => row.full_name).filter(Boolean),
+  };
   const subTabs = ["cases", "notes", "communications", "documents", "history"];
   const tabLabel = {
     cases: `Cases (${file.cases.length})`,
@@ -1582,25 +1595,58 @@ function constituentFileView(file) {
   return h`
     <section class="panel">
       <div class="panel-header">
-        <h2>${primary.full_name}</h2>
+        <h2>Constituent Dossier</h2>
         <button class="ghost" data-close-constituent-file>× Back to Directory</button>
       </div>
       <div class="panel-body constituent-file-head">
         <div class="portrait-sm">${initials(primary.full_name)}</div>
         <div>
+          <h3>${primary.full_name}</h3>
           <p class="muted">${address || "No address on file"}</p>
-          <p class="muted">${primary.subgroup || "Registered voter"} · <span class="status ${primary.voter_status === "Active" ? "good" : "warn"}">${primary.voter_status || "Unknown"}</span> · ${primary.ward || "Unknown"} Ward</p>
+          <p class="muted">${primary.subgroup || "Registered voter"} · <span class="status ${primary.voter_status === "Active" ? "good" : "warn"}">${primary.voter_status || "Unknown"}</span> · ${wardLabel}</p>
         </div>
-        <button class="primary" data-open-case-for='${JSON.stringify({ name: primary.full_name, address }).replace(/'/g, "&apos;")}'>＋ Add Case</button>
+        <div class="dossier-actions">
+          <button class="primary" data-open-case-for='${JSON.stringify({ name: primary.full_name, address, ward: primary.ward || "" }).replace(/'/g, "&apos;")}'>＋ Add Individual Issue</button>
+          <button class="secondary" data-open-case-for='${JSON.stringify(householdPayload).replace(/'/g, "&apos;")}'>＋ Add Household Issue</button>
+        </div>
+      </div>
+      <div class="panel-body dossier-grid">
+        ${dossierPanel("Identity", [
+          ["Full name", primary.full_name],
+          ["Voter ID", primary.voter_id || "Not on file"],
+          ["Age", age],
+          ["Gender", gender],
+          ["Party affiliation", party],
+          ["Employer", employer],
+        ])}
+        ${dossierPanel("Residence & Districts", [
+          ["Address", address || "Not on file"],
+          ["Ward", wardLabel],
+          ["Voting district", district],
+          ["City", [primary.city, primary.state, primary.zip_code || primary.zip].filter(Boolean).join(", ") || "Not on file"],
+          ["Household records", `${file.residents.length} associated`],
+          ["Source", primary.source_file || primary.source_tab_name || "WardOS constituent database"],
+        ])}
+        ${dossierPanel("Cross-References", [
+          ["Cases", `${file.cases.length} linked`],
+          ["Notes", `${file.notes.length} logged`],
+          ["Communications", `${file.communications.length} logged`],
+          ["Documents", `${file.attachments.length} attached`],
+          ["Photos", "Future source"],
+          ["External enrichment", "Not connected"],
+        ])}
       </div>
       ${others.length ? h`
         <div class="panel-body">
-          <strong>Other residents at this address</strong>
+          <div class="section-title-row">
+            <strong>Other residents at this address</strong>
+            <button class="link" data-open-case-for='${JSON.stringify(householdPayload).replace(/'/g, "&apos;")}'>Create household issue</button>
+          </div>
           <div class="list">
             ${others.map((row) => `
               <div class="list-row">
                 <span><strong>${row.full_name}</strong><br><small class="muted">${row.subgroup || "Registered voter"} · ${row.voter_status || "Unknown"}</small></span>
-                <span></span>
+                <span><small class="muted">Ward</small><br>${normalizeWardLabel(row.ward)}</span>
                 <button class="link" data-open-constituent-file='${JSON.stringify({ constituentId: row.id }).replace(/'/g, "&apos;")}'>View File</button>
               </div>
             `).join("")}
@@ -1618,9 +1664,9 @@ function directoryTabView() {
     return h`<section style="margin-top:16px">${constituentFileView(state.constituentFile)}</section>`;
   }
   const summary = state.constituentSummary || {};
-  const constituentKeys = ["full_name", "street_no", "street", "apt", "city", "state", "zip", "zip_code", "ward", "voter_status", "subgroup", "voter_id"];
+  const constituentKeys = ["full_name", "street_no", "street", "apt", "city", "state", "zip", "zip_code", "ward", "district", "voting_district", "precinct", "voter_status", "subgroup", "voter_id", "gender", "party", "party_affiliation", "employer"];
   const caseKeys = ["constituent_name", "address_line", "phone", "email", "topic", "notes", "status", "priority"];
-  const localRows = filterRows(state.constituents, constituentKeys);
+  const directoryRows = filterRows(state.constituents, constituentKeys);
   const citywideRows = filterRows(state.constituentSearch || state.constituents, constituentKeys);
   const matchingCases = filterRows(state.cases, caseKeys);
   return h`
@@ -1629,13 +1675,13 @@ function directoryTabView() {
         <div class="panel-header"><h2>Constituent Directory</h2><span class="muted">${summary.total || state.constituents.length} residents on file</span></div>
         <div class="panel-body timeline">
           <div class="grid metrics compact-metrics">
-            ${metric((summary.by_ward || {}).South || state.constituents.length, "South Ward", "Local constituents", "blue")}
-            ${metric(summary.total || (state.constituentSearch || []).length, "Citywide", "Searchable voters", "green")}
+            ${metric(summary.total || state.constituents.length, "All Constituents", "Citywide voter file", "blue")}
+            ${metric(wardSummaryCount(summary, "south"), "South Ward", "Local ward marker", "green")}
             ${metric(summary.outstanding || 0, "Outstanding Ballots", "May 2026 mail-in", "orange")}
           </div>
-          <div class="panel-note">Search a name or address using the global search above to cross-reference residents with open cases, then start a case directly from a match.</div>
+          <div class="panel-note">Search any name, address, ward, district, or issue using the global search above. Selecting a person opens a full constituent file and can start an individual or household issue.</div>
           ${constituentCrossReference(citywideRows, matchingCases)}
-          ${constituentRows(state.search.trim() ? citywideRows : localRows)}
+          ${constituentRows(state.search.trim() ? citywideRows : directoryRows)}
         </div>
       </section>
       <section class="panel">
@@ -1659,7 +1705,60 @@ function initials(name) {
 
 function constituentAddress(row) {
   if (!row) return "";
-  return [row.street_no, row.street, row.apt ? `Apt ${row.apt}` : "", row.city, row.state, row.zip].filter(Boolean).join(" ");
+  return [row.street_no, row.street, row.apt ? `Apt ${row.apt}` : "", row.city, row.state, row.zip_code || row.zip].filter(Boolean).join(" ");
+}
+
+function normalizeWardLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) return "Ward pending";
+  if (text.toLowerCase() === "citywide") return "Citywide";
+  return text.toLowerCase().includes("ward") ? text : `${text} Ward`;
+}
+
+function wardSummaryCount(summary, wardName) {
+  const target = String(wardName || "").toLowerCase();
+  return Object.entries(summary.by_ward || {}).reduce((total, [ward, count]) => {
+    const normalized = String(ward || "").toLowerCase().replace(/\s+ward$/, "");
+    return normalized === target ? total + Number(count || 0) : total;
+  }, 0);
+}
+
+function constituentField(row, keys, fallback = "Not on file") {
+  for (const key of keys) {
+    const value = row?.[key];
+    if (value !== null && value !== undefined && String(value).trim()) return String(value).trim();
+  }
+  return fallback;
+}
+
+function constituentAge(row) {
+  const direct = constituentField(row, ["age"], "");
+  if (direct) return direct;
+  const birthYear = Number.parseInt(constituentField(row, ["birth_year", "year_of_birth"], ""), 10);
+  if (Number.isFinite(birthYear) && birthYear > 1900) return `${new Date().getFullYear() - birthYear}`;
+  const birthDate = new Date(constituentField(row, ["date_of_birth", "dob", "birth_date"], ""));
+  if (!Number.isNaN(birthDate.getTime())) {
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDelta = today.getMonth() - birthDate.getMonth();
+    if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthDate.getDate())) age -= 1;
+    return `${age}`;
+  }
+  return "Not on file";
+}
+
+function dossierPanel(title, rows) {
+  return h`
+    <article class="dossier-panel">
+      <h3>${title}</h3>
+      ${rows.map(([label, value]) => `
+        <div>
+          <small class="muted">${label}</small>
+          <strong>${value || "Not on file"}</strong>
+        </div>
+      `).join("")}
+    </article>
+  `;
 }
 
 function constituentDatalists() {
@@ -1719,9 +1818,9 @@ function caseRows(rows = null) {
   rows = rows || filterRows(state.cases, ["constituent_name", "address_line", "phone", "email", "topic", "notes", "status", "priority"]);
   if (!rows.length) return `<div class="empty">No cases match this search.</div>`;
   return rows.map((row) => {
-    const ward = row.matched_constituent_ward || "";
+    const ward = row.matched_constituent_ward || row.ward || "";
     const wardBadge = ward
-      ? `<br><span class="status ${row.outside_local_ward ? "warn" : "info"}">${row.outside_local_ward ? `${ward} Ward · outside South` : "South Ward"}</span>`
+      ? `<br><span class="status info">${normalizeWardLabel(ward)}</span>`
       : "";
     return h`
       <div class="list-row">
@@ -1742,13 +1841,15 @@ function constituentRows(rows) {
       ${shown.map((row) => {
         const address = constituentAddress(row);
         const caseCount = state.cases.filter((item) => item.constituent_name === row.full_name).length;
+        const district = constituentField(row, ["district", "voting_district", "precinct", "election_district"], "District pending");
+        const caseLabel = caseCount ? `${caseCount} case${caseCount > 1 ? "s" : ""} on file` : "No cases on file";
         return h`
           <button class="list-row ghost" data-open-constituent-file='${JSON.stringify({ constituentId: row.id }).replace(/'/g, "&apos;")}' style="text-align:left;width:100%">
             <span><small class="muted">${row.voter_id}</small><br><strong>${row.full_name}</strong><br><small class="muted">${row.street_no} ${row.street}${row.apt ? ` Apt ${row.apt}` : ""}</small></span>
-            <span><small class="muted">Ward</small><br>${row.ward || "Unknown"}<br><small class="muted">${caseCount ? `${caseCount} case${caseCount > 1 ? "s" : ""} on file` : "No cases on file"}</small></span>
+            <span><small class="muted">Ward / District</small><br>${normalizeWardLabel(row.ward)}<br><small class="muted">${district} · ${caseLabel}</small></span>
             <span class="case-row-actions">
-              <span class="status ${String(row.ward || "").toLowerCase() === "south" ? "good" : "warn"}">${String(row.ward || "").toLowerCase() === "south" ? "Local" : `${row.ward || "Other"} Ward`}</span>
-              <span class="link" data-open-case-for='${JSON.stringify({ name: row.full_name, address }).replace(/'/g, "&apos;")}'>New Case</span>
+              <span class="status ${String(row.ward || "").toLowerCase() === "south" ? "good" : "info"}">${normalizeWardLabel(row.ward)}</span>
+              <span class="link" data-open-case-for='${JSON.stringify({ name: row.full_name, address, ward: row.ward || "" }).replace(/'/g, "&apos;")}'>New Issue</span>
             </span>
           </button>
         `;
@@ -3586,7 +3687,7 @@ function buildSearchIndex() {
     summary: `${item.street_no || ""} ${item.street || ""} ${item.apt || ""} · ${item.ward || "Ward pending"} · ${item.voter_status || ""}`,
     page: "constituents",
     tone: String(item.ward || "").toLowerCase() === "south" ? "blue" : "orange",
-    keywords: [item.voter_id, item.city, item.zip_code, item.zip, item.street_no, item.apt, item.subgroup],
+    keywords: [item.voter_id, item.city, item.zip_code, item.zip, item.street_no, item.apt, item.subgroup, item.district, item.voting_district, item.precinct, item.gender, item.party, item.party_affiliation, item.employer],
     action: { tab: "directory", constituentId: item.id, constituentName: item.full_name, constituentAddress: constituentAddress(item) },
   })));
   normalizedLegislationRows().forEach((item) => entries.push(searchEntry({
@@ -4117,7 +4218,7 @@ function bindEvents() {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       const payload = JSON.parse(button.dataset.openCaseFor);
-      openCaseModalFor(payload.name, payload.address);
+      openCaseModalFor(payload);
     });
   });
   document.querySelectorAll("[data-open-constituent-file]").forEach((button) => {
@@ -4247,12 +4348,21 @@ function openModal(type) {
   bindModalForms(type);
 }
 
-function openCaseModalFor(name, address) {
+function openCaseModalFor(payloadOrName, address = "") {
+  const payload = typeof payloadOrName === "object" && payloadOrName !== null ? payloadOrName : { name: payloadOrName, address };
   openModal("case");
   const form = document.getElementById("caseForm");
   if (!form) return;
-  if (form.elements.constituent_name) form.elements.constituent_name.value = name || "";
-  if (form.elements.address_line) form.elements.address_line.value = address || "";
+  if (form.elements.constituent_name) form.elements.constituent_name.value = payload.name || "";
+  if (form.elements.address_line) form.elements.address_line.value = payload.address || "";
+  if (form.elements.ward && payload.ward) form.elements.ward.value = normalizeWardLabel(payload.ward);
+  if (form.elements.notes && Array.isArray(payload.groupMembers) && payload.groupMembers.length) {
+    form.elements.notes.value = [
+      `${payload.groupLabel || "Group"} issue tied to:`,
+      ...payload.groupMembers.map((name) => `- ${name}`),
+      payload.address ? `Address: ${payload.address}` : "",
+    ].filter(Boolean).join("\n");
+  }
 }
 
 function openDraft(title) {
@@ -4481,10 +4591,12 @@ function bindCaseAutofill() {
   nameInput.addEventListener("input", () => {
     const match = findConstituentByName(nameInput.value);
     if (match && !addressInput.value.trim()) addressInput.value = constituentAddress(match);
+    if (match && form.elements.ward) form.elements.ward.value = normalizeWardLabel(match.ward);
   });
   addressInput.addEventListener("input", () => {
     const match = findConstituentByAddress(addressInput.value);
     if (match && !nameInput.value.trim()) nameInput.value = match.full_name;
+    if (match && form.elements.ward) form.elements.ward.value = normalizeWardLabel(match.ward);
   });
 }
 

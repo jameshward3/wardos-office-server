@@ -812,7 +812,7 @@ def constituents(subgroup: str = "", ward: str = "", q: str = "", limit: int = 2
             Constituent.voter_id.ilike(term),
             Constituent.notes.ilike(term),
         ))
-    rows = query.limit(min(max(limit, 1), 20000)).all()
+    rows = query.limit(min(max(limit, 1), 50000)).all()
     return [serialize_constituent(row) for row in rows]
 
 
@@ -852,13 +852,19 @@ def constituents_summary(_auth: AuthContext = Depends(require_staff_access), db:
 
 @app.get("/constituents/file")
 def constituent_file(
-    constituent_id: int = 0,
+    constituent_id: str = "",
     name: str = "",
     address: str = "",
     _auth: AuthContext = Depends(require_staff_access),
     db: Session = Depends(get_db),
 ):
-    primary = db.get(Constituent, constituent_id) if constituent_id else None
+    primary = None
+    constituent_lookup = constituent_id.strip()
+    if constituent_lookup:
+        if constituent_lookup.isdigit():
+            primary = db.get(Constituent, int(constituent_lookup))
+        if not primary:
+            primary = db.query(Constituent).filter(Constituent.voter_id == constituent_lookup).first()
     if not primary and name.strip():
         primary = db.query(Constituent).filter(Constituent.full_name.ilike(name.strip())).first()
 

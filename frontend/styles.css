@@ -1988,6 +1988,53 @@ h3 {
   min-width: 0;
 }
 
+.dossier-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dossier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dossier-panel {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(8, 22, 36, 0.48);
+}
+
+.dossier-panel h3 {
+  margin: 0 0 2px;
+}
+
+.dossier-panel div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dossier-panel strong {
+  overflow-wrap: anywhere;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .portrait-sm {
   width: 56px;
   height: 56px;
@@ -2660,6 +2707,7 @@ h3 {
   .media-metrics,
   .broadcast-grid,
   .alert-grid,
+  .dossier-grid,
   .development-map-layout,
   .safety-grid,
   .safety-bottom,
@@ -2793,6 +2841,16 @@ h3 {
   .profile {
     min-width: 0;
     width: 100%;
+  }
+
+  .constituent-file-head,
+  .section-title-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .dossier-actions {
+    justify-content: stretch;
   }
 }
 
