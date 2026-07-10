@@ -28,8 +28,26 @@ def ensure_incremental_columns() -> None:
     table_names = inspector.get_table_names()
     if "constituent_cases" not in table_names:
         return
-    columns = {column["name"] for column in inspector.get_columns("constituent_cases")}
     statements = []
+    if "constituents" in table_names:
+        constituent_columns = {column["name"] for column in inspector.get_columns("constituents")}
+        constituent_column_defs = {
+            "dob": "ALTER TABLE constituents ADD COLUMN dob DATE",
+            "party_affiliation": "ALTER TABLE constituents ADD COLUMN party_affiliation VARCHAR(80) DEFAULT '' NOT NULL",
+            "registration_date": "ALTER TABLE constituents ADD COLUMN registration_date DATE",
+            "gender": "ALTER TABLE constituents ADD COLUMN gender VARCHAR(80) DEFAULT '' NOT NULL",
+            "phone": "ALTER TABLE constituents ADD COLUMN phone VARCHAR(80) DEFAULT '' NOT NULL",
+            "voting_district": "ALTER TABLE constituents ADD COLUMN voting_district VARCHAR(80) DEFAULT '' NOT NULL",
+            "historical_source_file": "ALTER TABLE constituents ADD COLUMN historical_source_file VARCHAR(500) DEFAULT '' NOT NULL",
+            "historical_source_year": "ALTER TABLE constituents ADD COLUMN historical_source_year INTEGER",
+            "historical_match_status": "ALTER TABLE constituents ADD COLUMN historical_match_status VARCHAR(120) DEFAULT '' NOT NULL",
+            "historical_payload": "ALTER TABLE constituents ADD COLUMN historical_payload TEXT DEFAULT '' NOT NULL",
+            "historical_enriched_at": "ALTER TABLE constituents ADD COLUMN historical_enriched_at TIMESTAMP",
+        }
+        for column, statement in constituent_column_defs.items():
+            if column not in constituent_columns:
+                statements.append(statement)
+    columns = {column["name"] for column in inspector.get_columns("constituent_cases")}
     if "latitude" not in columns:
         statements.append("ALTER TABLE constituent_cases ADD COLUMN latitude FLOAT")
     if "longitude" not in columns:

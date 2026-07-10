@@ -1573,6 +1573,9 @@ function constituentFileView(file) {
   const others = file.residents.filter((row) => row.id !== primary.id);
   const wardLabel = normalizeWardLabel(primary.ward);
   const district = constituentField(primary, ["district", "voting_district", "precinct", "election_district"], "Not on file");
+  const dob = constituentField(primary, ["dob", "date_of_birth", "birth_date"], "Not on file");
+  const phone = constituentField(primary, ["phone", "phone_number"], "Not on file");
+  const registrationDate = constituentField(primary, ["registration_date", "reg_date"], "Not on file");
   const age = constituentAge(primary);
   const gender = constituentField(primary, ["gender", "sex"], "Not on file");
   const party = constituentField(primary, ["party", "party_affiliation"], "Future source");
@@ -1614,9 +1617,12 @@ function constituentFileView(file) {
         ${dossierPanel("Identity", [
           ["Full name", primary.full_name],
           ["Voter ID", primary.voter_id || "Not on file"],
+          ["DOB", dob],
           ["Age", age],
           ["Gender", gender],
+          ["Phone", phone],
           ["Party affiliation", party],
+          ["Registered", registrationDate],
           ["Employer", employer],
         ])}
         ${dossierPanel("Residence & Districts", [
@@ -1664,7 +1670,7 @@ function directoryTabView() {
     return h`<section style="margin-top:16px">${constituentFileView(state.constituentFile)}</section>`;
   }
   const summary = state.constituentSummary || {};
-  const constituentKeys = ["full_name", "street_no", "street", "apt", "city", "state", "zip", "zip_code", "ward", "district", "voting_district", "precinct", "voter_status", "subgroup", "voter_id", "gender", "party", "party_affiliation", "employer"];
+  const constituentKeys = ["full_name", "street_no", "street", "apt", "city", "state", "zip", "zip_code", "ward", "district", "voting_district", "precinct", "voter_status", "subgroup", "voter_id", "dob", "registration_date", "gender", "phone", "party", "party_affiliation", "employer"];
   const caseKeys = ["constituent_name", "address_line", "phone", "email", "topic", "notes", "status", "priority"];
   const directoryRows = filterRows(state.constituents, constituentKeys);
   const citywideRows = filterRows(state.constituentSearch || state.constituents, constituentKeys);
@@ -3687,7 +3693,7 @@ function buildSearchIndex() {
     summary: `${item.street_no || ""} ${item.street || ""} ${item.apt || ""} · ${item.ward || "Ward pending"} · ${item.voter_status || ""}`,
     page: "constituents",
     tone: String(item.ward || "").toLowerCase() === "south" ? "blue" : "orange",
-    keywords: [item.voter_id, item.city, item.zip_code, item.zip, item.street_no, item.apt, item.subgroup, item.district, item.voting_district, item.precinct, item.gender, item.party, item.party_affiliation, item.employer],
+    keywords: [item.voter_id, item.city, item.zip_code, item.zip, item.street_no, item.apt, item.subgroup, item.district, item.voting_district, item.precinct, item.dob, item.registration_date, item.gender, item.phone, item.party, item.party_affiliation, item.employer],
     action: { tab: "directory", constituentId: item.id, constituentName: item.full_name, constituentAddress: constituentAddress(item) },
   })));
   normalizedLegislationRows().forEach((item) => entries.push(searchEntry({
@@ -4592,11 +4598,13 @@ function bindCaseAutofill() {
     const match = findConstituentByName(nameInput.value);
     if (match && !addressInput.value.trim()) addressInput.value = constituentAddress(match);
     if (match && form.elements.ward) form.elements.ward.value = normalizeWardLabel(match.ward);
+    if (match && form.elements.phone && !form.elements.phone.value.trim()) form.elements.phone.value = match.phone || "";
   });
   addressInput.addEventListener("input", () => {
     const match = findConstituentByAddress(addressInput.value);
     if (match && !nameInput.value.trim()) nameInput.value = match.full_name;
     if (match && form.elements.ward) form.elements.ward.value = normalizeWardLabel(match.ward);
+    if (match && form.elements.phone && !form.elements.phone.value.trim()) form.elements.phone.value = match.phone || "";
   });
 }
 
