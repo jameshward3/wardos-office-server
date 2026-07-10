@@ -2069,6 +2069,285 @@ h3 {
   padding: 10px 12px;
 }
 
+.constituent-profile-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.crm-profile-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.crm-profile-head h1 {
+  margin: 4px 0 2px;
+  font-size: clamp(28px, 4vw, 48px);
+  line-height: 1;
+}
+
+.crm-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.crm-profile-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr) minmax(280px, 0.72fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.crm-confirmed-card,
+.crm-address-panel,
+.crm-tabs-panel {
+  grid-column: span 2;
+}
+
+.crm-right-rail {
+  grid-column: 3;
+  grid-row: span 3;
+  display: grid;
+  gap: 12px;
+}
+
+.portrait-lg {
+  position: relative;
+  width: 116px;
+  height: 116px;
+  flex: 0 0 116px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(216, 181, 107, 0.95), rgba(47, 117, 198, 0.85));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 34px;
+  font-weight: 900;
+  color: #06111f;
+}
+
+.portrait-action {
+  position: absolute;
+  right: 5px;
+  bottom: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  background: rgba(8, 22, 36, 0.92);
+}
+
+.confirmed-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.confirmed-field {
+  min-width: 0;
+  padding: 10px 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.confirmed-field strong {
+  display: block;
+  margin: 3px 0;
+  overflow-wrap: anywhere;
+}
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compact {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.crm-map-grid {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr;
+  gap: 10px;
+}
+
+.crm-map-card,
+.crm-street-card {
+  min-height: 214px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(11, 32, 52, 0.78), rgba(8, 20, 34, 0.96)),
+    repeating-linear-gradient(35deg, transparent 0 24px, rgba(255, 255, 255, 0.055) 25px 27px),
+    repeating-linear-gradient(125deg, transparent 0 40px, rgba(60, 154, 255, 0.12) 41px 44px);
+  display: grid;
+  align-content: end;
+  gap: 6px;
+  padding: 16px;
+}
+
+.crm-street-card {
+  background:
+    linear-gradient(180deg, rgba(12, 50, 84, 0.5), rgba(8, 17, 29, 0.96)),
+    linear-gradient(155deg, transparent 0 48%, rgba(216, 181, 107, 0.2) 49% 51%, transparent 52%),
+    linear-gradient(25deg, rgba(88, 211, 107, 0.18), transparent 45%);
+}
+
+.crm-map-pin {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%);
+  color: var(--purple);
+  font-size: 38px;
+  text-shadow: 0 0 28px rgba(181, 101, 231, 0.75);
+}
+
+.snapshot-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.snapshot-list div {
+  display: grid;
+  gap: 3px;
+}
+
+.snapshot-list dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.snapshot-list dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.note-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(8, 22, 36, 0.48);
+}
+
+.engagement-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.engagement-grid div {
+  display: grid;
+  gap: 3px;
+  padding-right: 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.score-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  margin-bottom: 8px;
+}
+
+.score-bar span {
+  display: block;
+  height: 100%;
+  max-width: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--green), var(--blue));
+}
+
+.quick-action-list {
+  display: grid;
+  gap: 8px;
+}
+
+.quick-action-list button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(13, 34, 55, 0.8);
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.crm-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.crm-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+}
+
+.crm-table th,
+.crm-table td {
+  padding: 12px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: top;
+}
+
+.crm-table th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.crm-table tr[data-select-case] {
+  cursor: pointer;
+}
+
+.crm-table tr[data-select-case]:hover {
+  background: rgba(42, 149, 255, 0.08);
+}
+
+.crm-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(8, 22, 36, 0.48);
+}
+
+.timeline-dot {
+  width: 13px;
+  height: 13px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: var(--purple);
+  box-shadow: 0 0 20px rgba(181, 101, 231, 0.5);
+}
+
 @media (max-width: 1300px) {
   .case-board {
     grid-template-columns: 1fr;
@@ -2077,6 +2356,70 @@ h3 {
   .case-drawer {
     position: static;
     max-height: none;
+  }
+
+  .crm-profile-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .crm-right-rail,
+  .crm-tabs-panel {
+    grid-column: 1 / -1;
+  }
+
+  .crm-right-rail {
+    grid-row: auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .crm-profile-head,
+  .crm-profile-grid,
+  .crm-map-grid,
+  .crm-right-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .crm-confirmed-card,
+  .crm-address-panel,
+  .crm-tabs-panel {
+    grid-column: 1;
+  }
+
+  .confirmed-fields,
+  .snapshot-list,
+  .engagement-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .crm-head-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .constituent-file-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .confirmed-fields,
+  .snapshot-list,
+  .engagement-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .crm-profile-head h1 {
+    font-size: 30px;
+  }
+
+  .timeline-item {
+    grid-template-columns: auto 1fr;
+  }
+
+  .timeline-item > small {
+    grid-column: 2;
   }
 }
 

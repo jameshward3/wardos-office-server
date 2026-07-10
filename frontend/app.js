@@ -1516,13 +1516,52 @@ function casesTabView() {
 function constituentFileTabBody(file) {
   const tab = state.constituentFileTab || "cases";
   if (tab === "cases") {
-    return file.cases.length ? `<div class="list">${file.cases.map((row) => `
-      <button class="list-row ghost" data-select-case="${row.id}">
-        <span><strong>${row.topic}</strong><br><small class="muted">${row.case_number} · ${row.category || "Uncategorized"} · ${row.constituent_name}</small></span>
-        <span><span class="status ${casePriorityTone(row.priority)}">${row.priority}</span></span>
-        <span class="status ${caseStatusTone(row.status)}">${row.status}</span>
-      </button>
-    `).join("")}</div>` : `<div class="empty">No cases on file for this household.</div>`;
+    return file.cases.length ? h`
+      <div class="crm-table-wrap">
+        <table class="crm-table">
+          <thead>
+            <tr>
+              <th>Case ID</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Department</th>
+              <th>Assigned To</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${file.cases.map((row) => `
+              <tr data-select-case="${row.id}">
+                <td>${row.case_number || `#${row.id}`}</td>
+                <td>${row.category || "Uncategorized"}</td>
+                <td><strong>${row.topic || "Constituent need"}</strong><br><small class="muted">${row.notes || row.address_line || "No additional description"}</small></td>
+                <td><span class="status ${caseStatusTone(row.status)}">${row.status || "open"}</span></td>
+                <td><span class="status ${casePriorityTone(row.priority)}">${row.priority || "normal"}</span></td>
+                <td>${row.department || "Unassigned"}</td>
+                <td>${row.assigned_to || "Unassigned"}</td>
+                <td>${formatShortDate(row.updated_at || row.created_at)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    ` : `<div class="empty">No cases on file for this household.</div>`;
+  }
+  if (tab === "interactions") {
+    const interactions = [
+      ...file.communications.map((row) => ({ ...row, kind: `${row.channel || "communication"} ${row.direction || ""}`.trim(), text: row.summary })),
+      ...file.notes.map((row) => ({ ...row, kind: "note added", text: row.body })),
+      ...file.activity.map((row) => ({ ...row, kind: activityLabel(row.action), text: row.detail })),
+    ].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    return interactions.length ? `<div class="crm-timeline">${interactions.map((row) => `
+      <div class="timeline-item">
+        <span class="timeline-dot"></span>
+        <div><strong>${row.kind}</strong><br><small class="muted">${row.text || "No summary"}${row.case_number ? ` · ${row.case_number}` : ""}</small></div>
+        <small class="muted">${formatShortDate(row.created_at)}</small>
+      </div>
+    `).join("")}</div>` : `<div class="empty">No interaction history recorded yet.</div>`;
   }
   if (tab === "notes") {
     return file.notes.length ? `<div class="list">${file.notes.map((note) => `
@@ -1549,6 +1588,20 @@ function constituentFileTabBody(file) {
         <small class="muted">${formatFileSize(row.size_bytes)} · ${row.case_number || `Case #${row.case_id}`} · ${formatShortDate(row.created_at)}</small>
       </a>
     `).join("")}</div>` : `<div class="empty">No documents attached yet.</div>`;
+  }
+  if (tab === "surveys") {
+    return `<div class="empty">No surveys are attached to this constituent yet. This area is ready for future survey imports.</div>`;
+  }
+  if (tab === "events") {
+    const addressKey = normalizeLookup(file.address || constituentAddress(file.primary));
+    const rows = (state.meetings || []).filter((row) => normalizeLookup([row.title, row.location, row.notes].join(" ")).includes(addressKey.split(" ")[1] || addressKey)).slice(0, 12);
+    return rows.length ? `<div class="list">${rows.map((row) => `
+      <div class="list-row">
+        <span><strong>${row.title}</strong><br><small class="muted">${row.location || "Location pending"} · ${row.status || "scheduled"}</small></span>
+        <span></span>
+        <span><small class="muted">${formatShortDate(row.starts_at || row.date)}</small></span>
+      </div>
+    `).join("")}</div>` : `<div class="empty">No linked events yet. Use manual event entry to record meetings attended or future commitments.</div>`;
   }
   return file.activity.length ? `<div class="list">${file.activity.map((row) => `
     <div class="list-row">
@@ -1580,6 +1633,16 @@ function constituentFileView(file) {
   const gender = constituentField(primary, ["gender", "sex"], "Not on file");
   const party = constituentField(primary, ["party", "party_affiliation"], "Future source");
   const employer = constituentField(primary, ["employer", "occupation"], "Future source");
+  const email = constituentField(primary, ["email"], "Not available");
+  const preferredContact = phone !== "Not on file" ? "Phone" : email !== "Not available" ? "Email" : "Not available";
+  const openCases = file.cases.filter((row) => !["resolved", "closed", "archived"].includes(String(row.status || "").toLowerCase()));
+  const resolvedCases = file.cases.length - openCases.length;
+  const engagementScore = Math.min(100, Math.round((file.cases.length * 9) + (file.communications.length * 7) + (file.notes.length * 4) + (file.activity.length * 3)));
+  const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address || primary.full_name || "Orange NJ")}`;
+  const imageInitials = initials(primary.full_name);
+  const sourceLabel = primary.source_file || primary.source_tab_name || "Voter file import";
+  const phoneVerified = phone !== "Not on file" ? "Verified" : "Not available";
+  const emailVerified = email !== "Not available" ? "Needs verification" : "Not available";
   const householdPayload = {
     name: `${primary.full_name} household`,
     address,
@@ -1587,82 +1650,206 @@ function constituentFileView(file) {
     groupLabel: "Household",
     groupMembers: file.residents.map((row) => row.full_name).filter(Boolean),
   };
-  const subTabs = ["cases", "notes", "communications", "documents", "history"];
+  const subTabs = ["cases", "communications", "notes", "interactions", "documents", "surveys", "events"];
   const tabLabel = {
     cases: `Cases (${file.cases.length})`,
-    notes: `Notes (${file.notes.length})`,
     communications: `Communications (${file.communications.length})`,
+    notes: `Notes (${file.notes.length})`,
+    interactions: `Interactions (${file.activity.length + file.communications.length + file.notes.length})`,
     documents: `Documents (${file.attachments.length})`,
-    history: `History (${file.activity.length})`,
+    surveys: "Surveys",
+    events: "Events",
   };
   return h`
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Constituent Dossier</h2>
-        <button class="ghost" data-close-constituent-file>× Back to Directory</button>
-      </div>
-      <div class="panel-body constituent-file-head">
-        <div class="portrait-sm">${initials(primary.full_name)}</div>
+    <section class="constituent-profile-shell">
+      <div class="crm-profile-head">
+        <button class="icon-button" data-close-constituent-file aria-label="Back to directory">‹</button>
         <div>
-          <h3>${primary.full_name}</h3>
+          <small class="muted">Constituents › ${primary.full_name}</small>
+          <h1>${primary.full_name} <span class="status ${String(primary.voter_status || "").toLowerCase().includes("active") ? "good" : "info"}">${primary.voter_status || "Active"}</span></h1>
           <p class="muted">${address || "No address on file"}</p>
-          <p class="muted">${primary.subgroup || "Registered voter"} · <span class="status ${primary.voter_status === "Active" ? "good" : "warn"}">${primary.voter_status || "Unknown"}</span> · ${wardLabel}</p>
         </div>
-        <div class="dossier-actions">
-          <button class="primary" data-open-case-for='${JSON.stringify({ name: primary.full_name, address, ward: primary.ward || "" }).replace(/'/g, "&apos;")}'>＋ Add Individual Issue</button>
-          <button class="secondary" data-open-case-for='${JSON.stringify(householdPayload).replace(/'/g, "&apos;")}'>＋ Add Household Issue</button>
+        <div class="crm-head-actions">
+          <button class="secondary" data-open-draft="Text to ${primary.full_name}">✉ Send Text</button>
+          <button class="secondary" data-open-draft="Email to ${primary.full_name}">▣ Send Email</button>
+          <button class="secondary" data-open-case-for='${JSON.stringify({ name: primary.full_name, address, ward: primary.ward || "" }).replace(/'/g, "&apos;")}'>☎ Log Call</button>
+          <button class="primary" data-open-draft="Profile edit for ${primary.full_name}">✎ Edit Profile</button>
         </div>
       </div>
-      <div class="panel-body dossier-grid">
-        ${dossierPanel("Identity", [
-          ["Full name", primary.full_name],
-          ["Voter ID", primary.voter_id || "Not on file"],
-          ["DOB", dob],
-          ["Age", age],
-          ["Gender", gender],
-          ["Phone", phone],
-          ["Party affiliation", party],
-          ["Registered", registrationDate],
-          ["Employer", employer],
-        ])}
-        ${dossierPanel("Residence & Districts", [
-          ["Address", address || "Not on file"],
-          ["Ward", wardLabel],
-          ["Voting district", district],
-          ["City", [primary.city, primary.state, primary.zip_code || primary.zip].filter(Boolean).join(", ") || "Not on file"],
-          ["Household records", `${file.residents.length} associated`],
-          ["Source", primary.source_file || primary.source_tab_name || "WardOS constituent database"],
-        ])}
-        ${dossierPanel("Cross-References", [
-          ["Cases", `${file.cases.length} linked`],
-          ["Notes", `${file.notes.length} logged`],
-          ["Communications", `${file.communications.length} logged`],
-          ["Documents", `${file.attachments.length} attached`],
-          ["Photos", "Future source"],
-          ["External enrichment", "Not connected"],
-        ])}
-      </div>
-      ${others.length ? h`
-        <div class="panel-body">
-          <div class="section-title-row">
-            <strong>Other residents at this address</strong>
-            <button class="link" data-open-case-for='${JSON.stringify(householdPayload).replace(/'/g, "&apos;")}'>Create household issue</button>
+
+      <div class="crm-profile-grid">
+        <section class="panel crm-confirmed-card">
+          <div class="panel-body constituent-file-head">
+            <div class="portrait-lg" aria-label="${primary.full_name} profile photo fallback">${imageInitials}<button class="portrait-action" data-open-draft="Replace profile photo for ${primary.full_name}">▣</button></div>
+            <div class="confirmed-fields">
+              ${confirmedField("DOB", dob, age !== "Not on file" ? `Age ${age}` : "Not available")}
+              ${confirmedField("Party", party, sourceLabel)}
+              ${confirmedField("Reg. Date", registrationDate, "Voter file")}
+              ${confirmedField("Gender", gender, "Sensitive")}
+              ${confirmedField("Phone", phone, phoneVerified)}
+              ${confirmedField("Email", email, emailVerified)}
+              ${confirmedField("Address", address || "Not available", "Last verified from source record")}
+            </div>
           </div>
-          <div class="list">
-            ${others.map((row) => `
-              <div class="list-row">
-                <span><strong>${row.full_name}</strong><br><small class="muted">${row.subgroup || "Registered voter"} · ${row.voter_status || "Unknown"}</small></span>
-                <span><small class="muted">Ward</small><br>${normalizeWardLabel(row.ward)}</span>
-                <button class="link" data-open-constituent-file='${JSON.stringify({ constituentId: row.id }).replace(/'/g, "&apos;")}'>View File</button>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header"><h3>Additional People at Address</h3><button class="link" data-open-draft="Link household member">+ Add Person</button></div>
+          <div class="panel-body list">
+            ${others.length ? others.slice(0, 6).map((row) => `
+              <button class="list-row ghost" data-open-constituent-file='${JSON.stringify({ constituentId: row.id }).replace(/'/g, "&apos;")}'>
+                <span><strong>${row.full_name}</strong><br><small class="muted">${row.subgroup || "Resident"} · ${normalizeWardLabel(row.ward)}</small></span>
+                <span><small class="muted">${constituentField(row, ["phone"], "No phone")}</small></span>
+                <span class="status info">${row.voter_status || "On file"}</span>
+              </button>
+            `).join("") : `<div class="empty small">No additional people matched at this exact address.</div>`}
+            <div class="button-row">
+              <button class="secondary" data-open-draft="Link existing constituent at ${address}">Link Existing Constituent</button>
+              <button class="secondary" data-open-draft="Relationship edit for ${primary.full_name}">Edit Relationship</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header"><h3>Tags</h3><button class="link" data-open-draft="Manage tags for ${primary.full_name}">Edit</button></div>
+          <div class="panel-body">
+            <div class="tag-cloud">
+              ${constituentTags(primary, file).map((tag) => `<span class="status info">${tag}</span>`).join("")}
+              <button class="secondary compact" data-open-draft="Add tag for ${primary.full_name}">+ Add Tag</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel crm-address-panel">
+          <div class="panel-header">
+            <div><small class="eyebrow">Address</small><h3>${address || "Address not available"}</h3><small class="muted">${[primary.city, primary.state, primary.zip_code || primary.zip].filter(Boolean).join(", ") || "Orange, NJ"}</small></div>
+            <div class="button-row"><button class="primary compact">Map View</button><button class="secondary compact" data-open-draft="Street View for ${address}">Street View</button><a class="secondary compact" href="${mapUrl}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a></div>
+          </div>
+          <div class="panel-body crm-map-grid">
+            <div class="crm-map-card">
+              <span class="crm-map-pin">◆</span>
+              <strong>${address || "Geocoding pending"}</strong>
+              <small class="muted">Map provider placeholder. Coordinates will load when geocoding is connected.</small>
+            </div>
+            <div class="crm-street-card">
+              <strong>Google Street View</strong>
+              <small class="muted">Street imagery is privacy-safe until a Maps key is connected through environment variables.</small>
+              <button class="secondary compact" data-open-draft="Expand address panel for ${primary.full_name}">Expand</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header"><h3>Constituent Snapshot</h3></div>
+          <div class="panel-body">
+            <dl class="snapshot-list">
+              ${snapshotRow("Ward", wardLabel)}
+              ${snapshotRow("Voting District", district)}
+              ${snapshotRow("Block / Lot", "Not available")}
+              ${snapshotRow("Property Type", "Not available")}
+              ${snapshotRow("Homeowner", "Not available")}
+              ${snapshotRow("Years at Address", registrationDate !== "Not on file" ? "Derived from registration" : "Not available")}
+              ${snapshotRow("Last Contact", newestDateLabel(file))}
+              ${snapshotRow("Preferred Contact", preferredContact)}
+              ${snapshotRow("Preferred Language", "Not available")}
+              ${snapshotRow("Do Not Contact", "No")}
+              ${snapshotRow("Assigned Staff", "Council Office")}
+              ${snapshotRow("Source", sourceLabel)}
+            </dl>
+          </div>
+        </section>
+
+        <aside class="crm-right-rail">
+          <section class="panel">
+            <div class="panel-header"><h3>Notes</h3><button class="link" data-open-draft="Profile note for ${primary.full_name}">View All</button></div>
+            <div class="panel-body list">
+              ${file.notes.slice(0, 4).map((note) => `<div class="note-card"><strong>${note.case_topic || "Profile note"}</strong><br><small class="muted">${note.body}</small><br><small class="muted">${formatShortDate(note.created_at)} by ${note.author || "WardOS"}</small></div>`).join("") || `<div class="empty small">No notes yet.</div>`}
+              <button class="secondary compact" data-open-draft="Add note for ${primary.full_name}">+ Log Communication</button>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h3>Engagement Summary</h3></div>
+            <div class="panel-body">
+              <div class="engagement-grid">
+                <div><strong>${file.communications.length + file.notes.length + file.activity.length}</strong><small class="muted">Interactions</small></div>
+                <div><strong>${file.cases.length}</strong><small class="muted">Cases</small></div>
+                <div><strong>${openCases.length}</strong><small class="muted">Open</small></div>
+                <div><strong>${resolvedCases}</strong><small class="muted">Resolved</small></div>
               </div>
-            `).join("")}
+              <div class="score-bar"><span style="width:${engagementScore}%"></span></div>
+              <small class="muted">Internal operational engagement indicator: case, communication, note, and activity volume only.</small>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h3>Quick Actions</h3></div>
+            <div class="panel-body quick-action-list">
+              <button data-open-case-for='${JSON.stringify({ name: primary.full_name, address, ward: primary.ward || "" }).replace(/'/g, "&apos;")}'>Create New Case</button>
+              <button data-open-draft="Text to ${primary.full_name}">Send Text</button>
+              <button data-open-draft="Email to ${primary.full_name}">Send Email</button>
+              <button data-open-case-for='${JSON.stringify({ name: primary.full_name, address, ward: primary.ward || "" }).replace(/'/g, "&apos;")}'>Log Call</button>
+              <button data-open-modal="event">Schedule Meeting</button>
+              <button data-open-draft="Upload document for ${primary.full_name}">Upload Document</button>
+            </div>
+          </section>
+        </aside>
+
+        <section class="panel crm-tabs-panel">
+          <div class="tabs">${subTabs.map((tab) => `<button class="tab ${state.constituentFileTab === tab ? "active" : ""}" data-constituent-file-tab="${tab}">${tabLabel[tab]}</button>`).join("")}</div>
+          <div class="panel-body">
+            <div class="case-filter-bar">
+              <div class="field compact"><label>Status</label><select disabled><option>All Statuses</option></select></div>
+              <div class="field compact"><label>Category</label><select disabled><option>All Categories</option></select></div>
+              <div class="field compact"><label>Department</label><select disabled><option>All Departments</option></select></div>
+              <button class="primary" data-open-case-for='${JSON.stringify({ name: primary.full_name, address, ward: primary.ward || "" }).replace(/'/g, "&apos;")}'>＋ Add Case</button>
+            </div>
+            ${constituentFileTabBody(file)}
           </div>
-        </div>
-      ` : ""}
-      <div class="tabs">${subTabs.map((tab) => `<button class="tab ${state.constituentFileTab === tab ? "active" : ""}" data-constituent-file-tab="${tab}">${tabLabel[tab]}</button>`).join("")}</div>
-      <div class="panel-body">${constituentFileTabBody(file)}</div>
+        </section>
+      </div>
     </section>
   `;
+}
+
+function confirmedField(label, value, hint) {
+  const displayValue = value && value !== "Not on file" ? value : "Not available";
+  return h`
+    <div class="confirmed-field">
+      <small class="muted">${label}</small>
+      <strong>${displayValue}</strong>
+      <small class="muted">${hint || "Source pending"}</small>
+    </div>
+  `;
+}
+
+function snapshotRow(label, value) {
+  return `<div><dt>${label}</dt><dd>${value || "Not available"}</dd></div>`;
+}
+
+function newestDateLabel(file) {
+  const dates = [
+    ...(file.communications || []).map((row) => row.created_at),
+    ...(file.notes || []).map((row) => row.created_at),
+    ...(file.activity || []).map((row) => row.created_at),
+    ...(file.cases || []).map((row) => row.updated_at || row.created_at),
+  ].filter(Boolean).map((value) => new Date(value)).filter((date) => !Number.isNaN(date.getTime())).sort((a, b) => b - a);
+  return dates.length ? formatShortDate(dates[0].toISOString()) : "Not available";
+}
+
+function constituentTags(primary, file) {
+  const tags = new Set();
+  if (String(primary.ward || "").toLowerCase() === "south") tags.add("South Ward");
+  else if (primary.ward) tags.add(normalizeWardLabel(primary.ward));
+  if (primary.voter_status) tags.add("Voter");
+  if (file.cases.length >= 3) tags.add("Frequent Contact");
+  if (file.cases.some((row) => String(row.category || row.topic || "").toLowerCase().includes("tree"))) tags.add("Tree Advocate");
+  if (file.cases.some((row) => String(row.category || row.topic || "").toLowerCase().includes("public safety"))) tags.add("Public Safety");
+  if (file.residents.length > 1) tags.add("Household");
+  if (!tags.size) tags.add("On File");
+  return Array.from(tags).slice(0, 8);
+}
+
+function normalizeLookup(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function directoryTabView() {
